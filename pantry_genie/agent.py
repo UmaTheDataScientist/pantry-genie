@@ -31,16 +31,12 @@ init_statsig()
 
 def get_model_name() -> str:
     try:
-        statsig.initialize_sync(os.getenv("STATSIG_SERVER_KEY"))
-        user = StatsigUser(user_id="pantry-genie-user")
-        use_large = statsig.check_gate(user, "use_large_model")
-        if use_large:
-            print("🚀 Statsig: using llama-3.3-70b-versatile")
-        else:
-            print("⚡ Statsig: using llama-3.3-70b-versatile")
-    except Exception as e:
-        print(f"⚠️ Statsig unavailable — using llama-3.3-70b-versatile")
-    return "llama-3.3-70b-versatile"
+        import streamlit as st
+        for key, value in st.secrets.items():
+            os.environ.setdefault(key, value)
+    except:
+        pass
+    return "llama3-groq-70b-8192-tool-use"
     
 # ── LLM ───────────────────────────────────────────────────
 def build_llm() -> ChatGroq:
