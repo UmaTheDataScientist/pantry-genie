@@ -9,13 +9,13 @@ from dotenv import load_dotenv
 from pantry_genie.tools import TOOLS
 
 load_dotenv()
-import streamlit as st
+# ── Load Streamlit secrets if running on cloud ─────────────
 try:
+    import streamlit as st
     for key, value in st.secrets.items():
         os.environ.setdefault(key, value)
 except:
     pass
-
 # ── Statsig Feature Flags ──────────────────────────────────
 import asyncio
 

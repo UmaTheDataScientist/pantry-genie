@@ -1,28 +1,40 @@
 import os
 import json
 import threading
-from pinecone import Pinecone
 from langchain_core.tools import tool
 from dotenv import load_dotenv
 
 load_dotenv()
-import streamlit as st
+
+# ── Load Streamlit secrets if on cloud ─────────────────────
 try:
+    import streamlit as st
     for key, value in st.secrets.items():
         os.environ.setdefault(key, value)
 except:
     pass
 
-# ── Init Pinecone ──────────────────────────────────────────
-pc = Pinecone(api_key=os.getenv("PINECONE_API_KEY"))
-index = pc.Index(os.getenv("PINECONE_INDEX"))
-
 # ── Thread-local user session ──────────────────────────────
 _thread_local = threading.local()
 
+# ── Lazy Pinecone init ─────────────────────────────────────
+_pinecone_index = None
+
+def get_index():
+    global _pinecone_index
+    if _pinecone_index is None:
+        from pinecone import Pinecone
+        pc = Pinecone(api_key=os.getenv("PINECONE_API_KEY"))
+        _pinecone_index = pc.Index(os.getenv("PINECONE_INDEX"))
+    return _pinecone_index
+
+# ── Memory directory ───────────────────────────────────────
+MEMORY_DIR = "/tmp/pantry_genie_memory"
+os.makedirs(MEMORY_DIR, exist_ok=True)
+
 def get_pantry_file() -> str:
     thread_id = getattr(_thread_local, "thread_id", "default")
-    path = f"memory/pantry_{thread_id}.json"
+    path = f"{MEMORY_DIR}/pantry_{thread_id}.json"
     if not os.path.exists(path):
         with open(path, "w") as f:
             json.dump({"ingredients": []}, f)
@@ -30,7 +42,7 @@ def get_pantry_file() -> str:
 
 def get_profile_file() -> str:
     thread_id = getattr(_thread_local, "thread_id", "default")
-    path = f"memory/profile_{thread_id}.json"
+    path = f"{MEMORY_DIR}/profile_{thread_id}.json"
     if not os.path.exists(path):
         with open(path, "w") as f:
             json.dump({}, f)
@@ -43,7 +55,7 @@ def search_recipes(query: str) -> str:
     """Search for vegan recipes in Pinecone based on ingredients or description.
     Use this when the user mentions ingredients or asks for recipe suggestions.
     """
-    results = index.search(
+    results = get_index().search(
         namespace="recipes",
         query={
             "inputs": {"text": query},
@@ -80,11 +92,9 @@ def get_pantry_contents(dummy: str = "") -> str:
     pantry_file = get_pantry_file()
     with open(pantry_file, "r") as f:
         data = json.load(f)
-
     ingredients = data.get("ingredients", [])
     if not ingredients:
         return "Pantry is empty."
-
     return f"Current pantry ingredients: {', '.join(ingredients)}"
 
 
@@ -112,14 +122,11 @@ def get_user_preferences(dummy: str = "") -> str:
     profile_file = get_profile_file()
     with open(profile_file, "r") as f:
         data = json.load(f)
-
     if not data:
         return "No preferences saved yet."
-
     return json.dumps(data, indent=2)
 
 
-# ── Tool 5: Update User Preferences ───────────────────────
 # ── Tool 5: Update User Preferences ───────────────────────
 @tool
 def update_user_preferences(spice_level: str = "", dislikes: list = [], favorite_cuisines: list = []) -> str:
@@ -131,21 +138,18 @@ def update_user_preferences(spice_level: str = "", dislikes: list = [], favorite
         favorite_cuisines: list of cuisines e.g. ['Indian', 'Thai']
     """
     profile_file = get_profile_file()
-    existing = {}
     with open(profile_file, "r") as f:
         existing = json.load(f)
-
     if spice_level:
         existing["spice_level"] = spice_level
     if dislikes:
         existing["dislikes"] = list(set(existing.get("dislikes", []) + dislikes))
     if favorite_cuisines:
         existing["favorite_cuisines"] = list(set(existing.get("favorite_cuisines", []) + favorite_cuisines))
-
     with open(profile_file, "w") as f:
         json.dump(existing, f, indent=2)
-
     return f"✅ Preferences updated: {json.dumps(existing, indent=2)}"
+
 
 # ── Export all tools ───────────────────────────────────────
 TOOLS = [
