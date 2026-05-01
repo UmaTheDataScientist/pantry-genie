@@ -85,7 +85,7 @@ def search_recipes(query: str) -> str:
 
 # ── Tool 2: Get Pantry Contents ────────────────────────────
 @tool
-def get_pantry_contents(dummy: str = "") -> str:
+def get_pantry_contents() -> str:
     """Read the current contents of the user's pantry/fridge.
     Use this when the user asks what they can cook with what they have.
     """
@@ -115,7 +115,7 @@ def update_pantry(ingredients: str) -> str:
 
 # ── Tool 4: Get User Preferences ──────────────────────────
 @tool
-def get_user_preferences(dummy: str = "") -> str:
+def get_user_preferences() -> str:
     """Read the user's stored taste preferences, dislikes and dietary needs.
     Use this before making recipe suggestions to personalize recommendations.
     """
@@ -129,7 +129,7 @@ def get_user_preferences(dummy: str = "") -> str:
 
 # ── Tool 5: Update User Preferences ───────────────────────
 @tool
-def update_user_preferences(spice_level: str = "", dislikes: list = [], favorite_cuisines: list = []) -> str:
+def update_user_preferences(spice_level: str = "", dislikes: list = None, favorite_cuisines: list = None) -> str:
     """Update the user's taste preferences.
     Use this when user mentions they like/dislike something, their spice level, or favorite cuisines.
     Args:
@@ -137,6 +137,8 @@ def update_user_preferences(spice_level: str = "", dislikes: list = [], favorite
         dislikes: list of ingredients the user dislikes e.g. ['coriander', 'mushrooms']
         favorite_cuisines: list of cuisines e.g. ['Indian', 'Thai']
     """
+    dislikes = dislikes or []
+    favorite_cuisines = favorite_cuisines or []
     profile_file = get_profile_file()
     with open(profile_file, "r") as f:
         existing = json.load(f)

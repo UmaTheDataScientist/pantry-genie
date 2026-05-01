@@ -84,7 +84,7 @@ with st.sidebar:
     st.header("🥕 Your Pantry")
     try:
         from pantry_genie.tools import get_pantry_contents
-        pantry = get_pantry_contents.invoke("")
+        pantry = get_pantry_contents.invoke({})
         st.info(pantry)
     except:
         st.info("Start chatting to update your pantry!")

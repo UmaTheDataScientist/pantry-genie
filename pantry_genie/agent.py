@@ -36,7 +36,7 @@ def get_model_name() -> str:
             os.environ.setdefault(key, value)
     except:
         pass
-    return "llama3-groq-70b-8192-tool-use"
+    return "llama-3.3-70b-versatile"
     
 # ── LLM ───────────────────────────────────────────────────
 def build_llm() -> ChatGroq:
