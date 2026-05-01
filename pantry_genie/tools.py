@@ -6,6 +6,12 @@ from langchain_core.tools import tool
 from dotenv import load_dotenv
 
 load_dotenv()
+import streamlit as st
+try:
+    for key, value in st.secrets.items():
+        os.environ.setdefault(key, value)
+except:
+    pass
 
 # ── Init Pinecone ──────────────────────────────────────────
 pc = Pinecone(api_key=os.getenv("PINECONE_API_KEY"))

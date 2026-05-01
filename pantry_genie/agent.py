@@ -9,6 +9,12 @@ from dotenv import load_dotenv
 from pantry_genie.tools import TOOLS
 
 load_dotenv()
+import streamlit as st
+try:
+    for key, value in st.secrets.items():
+        os.environ.setdefault(key, value)
+except:
+    pass
 
 # ── Statsig Feature Flags ──────────────────────────────────
 import asyncio
