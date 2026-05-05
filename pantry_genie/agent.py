@@ -23,9 +23,9 @@ import asyncio
 def init_statsig():
     try:
         statsig.initialize_sync(os.getenv("STATSIG_SERVER_KEY"))
-        print("✅ Statsig initialized")
+        print("Statsig initialized")
     except Exception as e:
-        print(f"⚠️ Statsig init failed: {e}")
+        print(f"Statsig init failed: {e}")
 
 init_statsig()
 
@@ -36,7 +36,7 @@ def get_model_name() -> str:
             os.environ.setdefault(key, value)
     except:
         pass
-    return "llama-3.3-70b-versatile"
+    return "meta-llama/llama-4-scout-17b-16e-instruct"
     
 # ── LLM ───────────────────────────────────────────────────
 def build_llm() -> ChatGroq:
@@ -64,6 +64,8 @@ Rules:
 - Suggest maximum 2-3 recipes at a time
 - If a recipe needs a missing ingredient, mention it but keep it minimal
 - Keep responses concise and friendly
+- ALWAYS call search_youtube for EACH recipe you suggest and include the returned link in your response
+- NEVER suggest a recipe without calling search_youtube first
 
 You have access to tools — use them proactively.
 """
@@ -91,16 +93,19 @@ def build_agent():
 def chat(user_input: str, agent, thread_id: str = "default") -> str:
     """Send a message to PantryGenie and get a response."""
     config = {"configurable": {"thread_id": thread_id}}
-    try:
-        response = agent.invoke(
-            {"messages": [HumanMessage(content=user_input)]},
-            config=config
-        )
-        return response["messages"][-1].content
-    except Exception as e:
-        import traceback
-        traceback.print_exc()
-        return f"❌ Error: {str(e)}"
+    for attempt in range(2):
+        try:
+            response = agent.invoke(
+                {"messages": [HumanMessage(content=user_input)]},
+                config=config
+            )
+            return response["messages"][-1].content
+        except Exception as e:
+            if attempt == 0 and "tool_use_failed" in str(e):
+                continue
+            import traceback
+            traceback.print_exc()
+            return f"❌ Error: {str(e)}"
 
 
 # ── Quick terminal test ────────────────────────────────────

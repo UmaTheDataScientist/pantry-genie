@@ -1,6 +1,7 @@
 import os
 import json
 import threading
+import requests
 from langchain_core.tools import tool
 from dotenv import load_dotenv
 
@@ -153,6 +154,35 @@ def update_user_preferences(spice_level: str = "", dislikes: list = None, favori
     return f"✅ Preferences updated: {json.dumps(existing, indent=2)}"
 
 
+# ── Tool 6: Search YouTube ─────────────────────────────────
+@tool
+def search_youtube(recipe_name: str) -> str:
+    """Find a YouTube video for a given vegan recipe name.
+    Use this after suggesting a recipe to provide a video link.
+    """
+    api_key = os.getenv("YOUTUBE_API_KEY")
+    if not api_key:
+        return "YouTube search unavailable (no API key configured)."
+    resp = requests.get(
+        "https://www.googleapis.com/youtube/v3/search",
+        params={
+            "part": "snippet",
+            "q": f"{recipe_name} vegan recipe",
+            "type": "video",
+            "maxResults": 1,
+            "key": api_key,
+        },
+        timeout=5,
+    )
+    resp.raise_for_status()
+    items = resp.json().get("items", [])
+    if not items:
+        return "No YouTube video found for this recipe."
+    video_id = items[0]["id"]["videoId"]
+    title = items[0]["snippet"]["title"]
+    return f"▶️ [{title}](https://www.youtube.com/watch?v={video_id})"
+
+
 # ── Export all tools ───────────────────────────────────────
 TOOLS = [
     search_recipes,
@@ -160,4 +190,5 @@ TOOLS = [
     update_pantry,
     get_user_preferences,
     update_user_preferences,
+    search_youtube,
 ]
