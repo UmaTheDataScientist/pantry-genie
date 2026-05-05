@@ -3,6 +3,8 @@ import json
 import threading
 import requests
 from langchain_core.tools import tool
+from pydantic import BaseModel, Field
+from typing import List
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -129,14 +131,15 @@ def get_user_preferences() -> str:
 
 
 # ── Tool 5: Update User Preferences ───────────────────────
-@tool
-def update_user_preferences(spice_level: str = "", dislikes: list = None, favorite_cuisines: list = None) -> str:
+class UpdatePreferencesInput(BaseModel):
+    spice_level: str = Field(default="", description="Spice level: 'low', 'medium', or 'high'")
+    dislikes: List[str] = Field(default_factory=list, description="Ingredients the user dislikes, e.g. ['coriander', 'mushrooms']")
+    favorite_cuisines: List[str] = Field(default_factory=list, description="Cuisines the user likes, e.g. ['Indian', 'Thai']")
+
+@tool(args_schema=UpdatePreferencesInput)
+def update_user_preferences(spice_level: str = "", dislikes: List[str] = None, favorite_cuisines: List[str] = None) -> str:
     """Update the user's taste preferences.
     Use this when user mentions they like/dislike something, their spice level, or favorite cuisines.
-    Args:
-        spice_level: e.g. 'low', 'medium', 'high'
-        dislikes: list of ingredients the user dislikes e.g. ['coriander', 'mushrooms']
-        favorite_cuisines: list of cuisines e.g. ['Indian', 'Thai']
     """
     dislikes = dislikes or []
     favorite_cuisines = favorite_cuisines or []
