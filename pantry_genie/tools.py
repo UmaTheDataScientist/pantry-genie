@@ -188,7 +188,6 @@ def search_youtube(recipe_name: str) -> str:
 
 # ── Export all tools ───────────────────────────────────────
 TOOLS = [
-    search_recipes,
     get_pantry_contents,
     update_pantry,
     get_user_preferences,
