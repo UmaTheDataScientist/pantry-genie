@@ -45,9 +45,12 @@ st.markdown("""
 # ── Google OAuth ───────────────────────────────────────────
 from streamlit_oauth import OAuth2Component
 
+def _secret(key):
+    return os.getenv(key) or st.secrets.get(key, "")
+
 oauth2 = OAuth2Component(
-    client_id=os.getenv("GOOGLE_CLIENT_ID"),
-    client_secret=os.getenv("GOOGLE_CLIENT_SECRET"),
+    client_id=_secret("GOOGLE_CLIENT_ID"),
+    client_secret=_secret("GOOGLE_CLIENT_SECRET"),
     authorize_endpoint="https://accounts.google.com/o/oauth2/auth",
     token_endpoint="https://oauth2.googleapis.com/token",
     refresh_token_endpoint="https://oauth2.googleapis.com/token",
