@@ -45,6 +45,8 @@ st.markdown("""
 # ── Google OAuth ───────────────────────────────────────────
 from streamlit_oauth import OAuth2Component
 import streamlit.components.v1 as components
+import warnings
+warnings.filterwarnings("ignore", message=".*st.components.v1.html.*")
 
 _APP_URL = os.getenv("REDIRECT_URI", "https://pantry-genie.streamlit.app")
 
@@ -92,7 +94,6 @@ try {{
     if (d) window.top.location.href = '{_APP_URL}?_pg=' + encodeURIComponent(d);
 }} catch(e) {{}}
 </script>""", height=0)
-        st.stop()
 
 if "user_info" not in st.session_state:
     st.title("🧞 PantryGenie")
