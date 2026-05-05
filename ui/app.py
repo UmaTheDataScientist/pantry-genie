@@ -72,7 +72,15 @@ def _decode_id_token(id_token: str) -> dict:
     payload += "=" * (4 - len(payload) % 4)
     return json.loads(base64.urlsafe_b64decode(payload))
 
-# Restore session from cookie
+# Flush any pending cookie write from the previous render
+if "pending_cookie" in st.session_state:
+    try:
+        cookie_manager.set("pg_user", st.session_state.pending_cookie, max_age=30*24*3600)
+        del st.session_state.pending_cookie
+    except Exception:
+        pass  # component still not ready — will retry next render
+
+# Restore session from cookie.
 # The cookie component needs one render cycle to report values back to Python.
 # On the first render we force a silent rerun; on the second render the cookie is available.
 if "user_info" not in st.session_state:
@@ -106,8 +114,8 @@ if "user_info" not in st.session_state:
         )
     if result and "token" in result:
         _user = _decode_id_token(result["token"]["id_token"])
-        cookie_manager.set("pg_user", json.dumps(_user), max_age=30*24*3600)
         st.session_state.user_info = _user
+        st.session_state.pending_cookie = json.dumps(_user)
         st.rerun()
     st.stop()
 
