@@ -17,26 +17,18 @@ try:
 except:
     pass
 
-# ── Memory directory ───────────────────────────────────────
-MEMORY_DIR = "/tmp/pantry_genie_memory"
-os.makedirs(MEMORY_DIR, exist_ok=True)
+# ── Lazy Supabase client ───────────────────────────────────
+_supabase = None
 
-def _get_thread_id(config: RunnableConfig) -> str:
-    return config.get("configurable", {}).get("thread_id", "default")
+def get_supabase():
+    global _supabase
+    if _supabase is None:
+        from supabase import create_client
+        _supabase = create_client(os.getenv("SUPABASE_URL"), os.getenv("SUPABASE_KEY"))
+    return _supabase
 
-def _pantry_file(thread_id: str) -> str:
-    path = f"{MEMORY_DIR}/pantry_{thread_id}.json"
-    if not os.path.exists(path):
-        with open(path, "w") as f:
-            json.dump({"ingredients": []}, f)
-    return path
-
-def _profile_file(thread_id: str) -> str:
-    path = f"{MEMORY_DIR}/profile_{thread_id}.json"
-    if not os.path.exists(path):
-        with open(path, "w") as f:
-            json.dump({}, f)
-    return path
+def _get_user_id(config: RunnableConfig) -> str:
+    return config.get("configurable", {}).get("user_id", "default")
 
 
 # ── Tool 1: Get Pantry Contents ────────────────────────────
@@ -45,12 +37,11 @@ def get_pantry_contents(config: RunnableConfig) -> str:
     """Read the current contents of the user's pantry/fridge.
     Use this when the user asks what they can cook with what they have.
     """
-    with open(_pantry_file(_get_thread_id(config))) as f:
-        data = json.load(f)
-    ingredients = data.get("ingredients", [])
-    if not ingredients:
+    user_id = _get_user_id(config)
+    result = get_supabase().table("pantry").select("ingredients").eq("user_id", user_id).execute()
+    if not result.data or not result.data[0].get("ingredients"):
         return "Pantry is empty."
-    return f"Current pantry ingredients: {', '.join(ingredients)}"
+    return f"Current pantry ingredients: {', '.join(result.data[0]['ingredients'])}"
 
 
 # ── Tool 2: Update Pantry ──────────────────────────────────
@@ -61,9 +52,9 @@ def update_pantry(ingredients: str, config: RunnableConfig) -> str:
     Always pass ingredients as a single comma-separated string like:
     'chickpeas, spinach, tomatoes'
     """
+    user_id = _get_user_id(config)
     items = [i.strip() for i in ingredients.split(",") if i.strip()]
-    with open(_pantry_file(_get_thread_id(config)), "w") as f:
-        json.dump({"ingredients": items}, f, indent=2)
+    get_supabase().table("pantry").upsert({"user_id": user_id, "ingredients": items}).execute()
     return f"✅ Pantry updated with: {', '.join(items)}"
 
 
@@ -73,11 +64,13 @@ def get_user_preferences(config: RunnableConfig) -> str:
     """Read the user's stored taste preferences, dislikes and dietary needs.
     Use this before making recipe suggestions to personalize recommendations.
     """
-    with open(_profile_file(_get_thread_id(config))) as f:
-        data = json.load(f)
-    if not data:
+    user_id = _get_user_id(config)
+    result = get_supabase().table("preferences").select("*").eq("user_id", user_id).execute()
+    if not result.data:
         return "No preferences saved yet."
-    return json.dumps(data, indent=2)
+    row = result.data[0]
+    prefs = {k: v for k, v in row.items() if k not in ("user_id", "updated_at") and v}
+    return json.dumps(prefs, indent=2) if prefs else "No preferences saved yet."
 
 
 # ── Tool 4: Update User Preferences ───────────────────────
@@ -96,20 +89,23 @@ def update_user_preferences(
     """Update the user's taste preferences.
     Use this when user mentions they like/dislike something, their spice level, or favourite cuisines.
     """
+    user_id = _get_user_id(config)
     dislikes = dislikes or []
     favorite_cuisines = favorite_cuisines or []
-    profile_path = _profile_file(_get_thread_id(config))
-    with open(profile_path) as f:
-        existing = json.load(f)
+
+    result = get_supabase().table("preferences").select("*").eq("user_id", user_id).execute()
+    existing = result.data[0] if result.data else {}
+
+    update = {"user_id": user_id}
     if spice_level:
-        existing["spice_level"] = spice_level
+        update["spice_level"] = spice_level
     if dislikes:
-        existing["dislikes"] = list(set(existing.get("dislikes", []) + dislikes))
+        update["dislikes"] = list(set(existing.get("dislikes", []) + dislikes))
     if favorite_cuisines:
-        existing["favorite_cuisines"] = list(set(existing.get("favorite_cuisines", []) + favorite_cuisines))
-    with open(profile_path, "w") as f:
-        json.dump(existing, f, indent=2)
-    return f"✅ Preferences updated: {json.dumps(existing, indent=2)}"
+        update["favorite_cuisines"] = list(set(existing.get("favorite_cuisines", []) + favorite_cuisines))
+
+    get_supabase().table("preferences").upsert(update).execute()
+    return f"✅ Preferences updated."
 
 
 # ── Tool 5: Search YouTube ─────────────────────────────────

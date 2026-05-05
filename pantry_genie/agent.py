@@ -36,7 +36,7 @@ def get_model_name() -> str:
             os.environ.setdefault(key, value)
     except:
         pass
-    return "llama-3.1-8b-instant"
+    return "llama-3.3-70b-versatile"
     
 # ── LLM ───────────────────────────────────────────────────
 def build_llm() -> ChatGroq:
@@ -88,9 +88,9 @@ def build_agent():
 
 
 # ── Chat function ──────────────────────────────────────────
-def chat(user_input: str, agent, thread_id: str = "default") -> str:
+def chat(user_input: str, agent, thread_id: str = "default", user_id: str = "default") -> str:
     """Send a message to PantryGenie and get a response."""
-    config = {"configurable": {"thread_id": thread_id}}
+    config = {"configurable": {"thread_id": thread_id, "user_id": user_id}}
     for attempt in range(2):
         try:
             response = agent.invoke(
