@@ -2,18 +2,16 @@ import streamlit as st
 import uuid
 import sys
 import os
-import json
 
-# ── Path fix for Streamlit Cloud ───────────────────────────
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from dotenv import load_dotenv
 load_dotenv()
 
-# ── Load Streamlit secrets if on cloud ─────────────────────
 try:
     for key, value in st.secrets.items():
-        os.environ.setdefault(key, value)
+        if not isinstance(value, dict):
+            os.environ.setdefault(key, value)
 except:
     pass
 
@@ -42,50 +40,23 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# ── Google OAuth ───────────────────────────────────────────
-def _write_google_credentials():
-    creds = {
-        "web": {
-            "client_id": os.getenv("GOOGLE_CLIENT_ID"),
-            "client_secret": os.getenv("GOOGLE_CLIENT_SECRET"),
-            "redirect_uris": [os.getenv("REDIRECT_URI", "http://localhost:8501")],
-            "auth_uri": "https://accounts.google.com/o/oauth2/auth",
-            "token_uri": "https://oauth2.googleapis.com/token",
-        }
-    }
-    path = os.path.join(os.path.dirname(__file__), "google_credentials.json")
-    with open(path, "w") as f:
-        json.dump(creds, f)
-    return path
-
-from streamlit_google_auth import Authenticate
-
-creds_path = _write_google_credentials()
-authenticator = Authenticate(
-    secret_credentials_path=creds_path,
-    cookie_name="pantry_genie_auth",
-    cookie_key=os.getenv("COOKIE_SECRET", "pantry-genie-secret-key"),
-    redirect_uri=os.getenv("REDIRECT_URI", "http://localhost:8501"),
-)
-
-authenticator.check_authentification()
-
-if not st.session_state.get("connected"):
+# ── Auth ───────────────────────────────────────────────────
+if not st.user.is_logged_in:
     st.title("🧞 PantryGenie")
     st.markdown('<p class="subtitle">Your personal vegan recipe assistant 🌱</p>', unsafe_allow_html=True)
     st.divider()
-    col1, col2, col3 = st.columns([1, 2, 1])
-    with col2:
-        authenticator.login()
+    _, col, _ = st.columns([1, 2, 1])
+    with col:
+        if st.button("Sign in with Google 🔐", use_container_width=True):
+            st.login("google")
     st.stop()
 
-# ── Authenticated — get user identity ─────────────────────
-user_info = st.session_state["user_info"]
-user_id = user_info["sub"]
-user_name = user_info.get("given_name") or user_info.get("name", "there")
-user_picture = user_info.get("picture", "")
+# ── User identity ──────────────────────────────────────────
+user_id = st.user.email
+user_name = (st.user.name or "").split()[0] or "there"
+user_picture = getattr(st.user, "picture", "")
 
-# ── Supabase client (cached) ───────────────────────────────
+# ── Supabase ───────────────────────────────────────────────
 @st.cache_resource
 def get_supabase():
     from supabase import create_client
@@ -138,20 +109,19 @@ if prompt := st.chat_input("e.g. I have chickpeas, spinach and coconut milk...")
 
 # ── Sidebar ────────────────────────────────────────────────
 with st.sidebar:
-    # User profile
     if user_picture:
         col1, col2 = st.columns([1, 3])
         with col1:
             st.image(user_picture, width=48)
         with col2:
-            st.markdown(f"**{user_info.get('name', '')}**")
-            st.caption(user_info.get("email", ""))
+            st.markdown(f"**{st.user.name or ''}**")
+            st.caption(user_id)
     else:
-        st.markdown(f"**{user_info.get('name', '')}**")
+        st.markdown(f"**{st.user.name or ''}**")
+        st.caption(user_id)
 
     st.divider()
 
-    # Pantry
     st.header("🥕 Your Pantry")
     pantry_result = supabase.table("pantry").select("ingredients").eq("user_id", user_id).execute()
     ingredients = pantry_result.data[0]["ingredients"] if pantry_result.data else []
@@ -163,7 +133,6 @@ with st.sidebar:
 
     st.divider()
 
-    # Preferences
     st.header("💛 Your Preferences")
     prefs_result = supabase.table("preferences").select("*").eq("user_id", user_id).execute()
     prefs = prefs_result.data[0] if prefs_result.data else {}
@@ -184,7 +153,7 @@ with st.sidebar:
         st.rerun()
 
     if st.button("🚪 Sign out"):
-        authenticator.logout()
+        st.logout()
 
     st.divider()
     st.caption("Built with LangGraph + Groq + Supabase")
