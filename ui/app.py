@@ -1,9 +1,6 @@
 import streamlit as st
-import uuid
 import sys
 import os
-import json
-import base64
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -30,7 +27,6 @@ st.set_page_config(
 st.markdown("""
 <style>
     .main { max-width: 700px; margin: auto; }
-    .stChatMessage { border-radius: 12px; margin-bottom: 8px; }
     h1 { text-align: center; }
     .subtitle {
         text-align: center;
@@ -39,92 +35,38 @@ st.markdown("""
         margin-top: -15px;
         margin-bottom: 20px;
     }
+    .empty-state {
+        text-align: center;
+        color: #bbb;
+        margin-top: 48px;
+        margin-bottom: 48px;
+    }
+    .recipe-area {
+        background: #f7faf7;
+        border-radius: 16px;
+        padding: 24px 28px;
+        border: 1px solid #e0ede0;
+        margin-top: 8px;
+    }
 </style>
 """, unsafe_allow_html=True)
 
-# ── Google OAuth ───────────────────────────────────────────
-from streamlit_oauth import OAuth2Component
-import streamlit.components.v1 as components
-import warnings
-warnings.filterwarnings("ignore", message=".*st.components.v1.html.*")
-
-_APP_URL = os.getenv("REDIRECT_URI", "https://pantry-genie.streamlit.app")
-
-def _secret(key):
-    try:
-        return os.getenv(key) or st.secrets.get(key) or ""
-    except Exception:
-        return os.getenv(key) or ""
-
-_client_id = _secret("GOOGLE_CLIENT_ID")
-if not _client_id:
-    st.error("Google OAuth is not configured. Add GOOGLE_CLIENT_ID to Streamlit secrets.")
-    st.stop()
-
-oauth2 = OAuth2Component(
-    client_id=_client_id,
-    client_secret=_secret("GOOGLE_CLIENT_SECRET"),
-    authorize_endpoint="https://accounts.google.com/o/oauth2/auth",
-    token_endpoint="https://oauth2.googleapis.com/token",
-    refresh_token_endpoint="https://oauth2.googleapis.com/token",
-)
-
-def _decode_id_token(id_token: str) -> dict:
-    payload = id_token.split(".")[1]
-    payload += "=" * (4 - len(payload) % 4)
-    return json.loads(base64.urlsafe_b64decode(payload))
-
-# ── Session persistence via localStorage ───────────────────
-# On page load, if session is not in memory, check localStorage.
-# JS writes the stored value into a query param and redirects back;
-# Python reads the param, restores the session, then clears the param.
-if "user_info" not in st.session_state:
-    if "_pg" in st.query_params:
-        try:
-            st.session_state.user_info = json.loads(st.query_params["_pg"])
-        except Exception:
-            pass
-        del st.query_params["_pg"]
-    elif "storage_checked" not in st.session_state:
-        st.session_state.storage_checked = True
-        components.html(f"""
-<script>
-try {{
-    var d = localStorage.getItem('pg_user');
-    if (d) window.top.location.href = '{_APP_URL}?_pg=' + encodeURIComponent(d);
-}} catch(e) {{}}
-</script>""", height=0)
-
-if "user_info" not in st.session_state:
+# ── Auth ───────────────────────────────────────────────────
+if not st.user.is_logged_in:
     st.title("🧞 PantryGenie")
     st.markdown('<p class="subtitle">Your personal vegetarian recipe assistant 🌱</p>', unsafe_allow_html=True)
     st.divider()
     _, col, _ = st.columns([1, 2, 1])
     with col:
-        result = oauth2.authorize_button(
-            name="Sign in with Google",
-            redirect_uri=_APP_URL,
-            scope="openid email profile",
-            key="google_login",
-            extras_params={"prompt": "consent", "access_type": "offline"},
-            use_container_width=True,
-            icon="https://www.google.com/favicon.ico",
-        )
-    if result and "token" in result:
-        _user = _decode_id_token(result["token"]["id_token"])
-        st.session_state.user_info = _user
-        components.html(
-            f'<script>try{{localStorage.setItem("pg_user",{json.dumps(json.dumps(_user))})}}catch(e){{}}</script>',
-            height=0,
-        )
-        st.rerun()
+        if st.button("Sign in with Google", use_container_width=True):
+            st.login("google")
     st.stop()
 
 # ── User identity ──────────────────────────────────────────
-user_info = st.session_state.user_info
-user_id = user_info["email"]
-user_name = user_info.get("given_name") or user_info.get("name", "").split()[0] or "there"
-user_picture = user_info.get("picture", "")
+user_id = st.user.email
+user_name = (st.user.name or "there").split()[0]
+user_picture = getattr(st.user, "picture", "") or ""
+user_full_name = st.user.name or ""
 
 # ── Supabase ───────────────────────────────────────────────
 @st.cache_resource
@@ -135,47 +77,59 @@ def get_supabase():
 supabase = get_supabase()
 
 # ── Session state ──────────────────────────────────────────
-if "thread_id" not in st.session_state:
-    st.session_state.thread_id = str(uuid.uuid4())
-
-if "messages" not in st.session_state:
-    st.session_state.messages = []
-
 if "agent" not in st.session_state:
     with st.spinner("🧞 Waking up PantryGenie..."):
         st.session_state.agent = build_agent()
 
 # ── Header ─────────────────────────────────────────────────
 st.title("🧞 PantryGenie")
-st.markdown(f'<p class="subtitle">Hey {user_name}! Tell me what\'s in your pantry — I\'ll grant your recipe wish 🌱</p>', unsafe_allow_html=True)
+st.markdown(f'<p class="subtitle">Hey {user_name}! Let\'s see what we can cook today 🌱</p>', unsafe_allow_html=True)
 st.divider()
 
-# ── Starter message ────────────────────────────────────────
-if not st.session_state.messages:
-    with st.chat_message("assistant"):
-        st.markdown(f"Hey {user_name}! 👋 I'm PantryGenie. Tell me what ingredients you have and I'll suggest some delicious vegetarian recipes. What's in your pantry today?")
+# ── Special request input ──────────────────────────────────
+special_request = st.text_input(
+    "Any special request?",
+    placeholder="e.g. quick meal, Italian tonight, high protein, light lunch...",
+)
 
-# ── Chat history ───────────────────────────────────────────
-for msg in st.session_state.messages:
-    with st.chat_message(msg["role"]):
-        st.markdown(msg["content"])
+# ── Suggest button ─────────────────────────────────────────
+_, btn_col, _ = st.columns([1, 2, 1])
+with btn_col:
+    suggest_clicked = st.button("✨ Suggest Recipes", use_container_width=True, type="primary")
 
-# ── Chat input ─────────────────────────────────────────────
-if prompt := st.chat_input("e.g. I have chickpeas, spinach and coconut milk..."):
-    st.session_state.messages.append({"role": "user", "content": prompt})
-    with st.chat_message("user"):
-        st.markdown(prompt)
+# ── Run agent on click ─────────────────────────────────────
+if suggest_clicked:
+    prompt = "Suggest recipes from my pantry."
+    if special_request.strip():
+        prompt += f" Special request: {special_request.strip()}"
 
-    with st.chat_message("assistant"):
-        with st.spinner("🧞 thinking..."):
-            reply = chat(
-                user_input=prompt,
-                agent=st.session_state.agent,
-                thread_id=st.session_state.thread_id,
-                user_id=user_id,
-            )
-        st.markdown(reply)
-        st.session_state.messages.append({"role": "assistant", "content": reply})
+    with st.spinner("🧞 Cooking up some ideas..."):
+        reply = chat(
+            user_input=prompt,
+            agent=st.session_state.agent,
+            thread_id=user_id,   # keyed to user — context persists per user
+            user_id=user_id,
+        )
+    st.session_state.last_recipes = reply
+
+# ── Recipe display ─────────────────────────────────────────
+if st.session_state.get("last_recipes"):
+    st.divider()
+    st.subheader("🍽️ Your Recipe Suggestions")
+    st.markdown(
+        f'<div class="recipe-area">{st.session_state.last_recipes}</div>',
+        unsafe_allow_html=True,
+    )
+else:
+    st.markdown("""
+    <div class="empty-state">
+        <p style="font-size:3em; margin-bottom:8px;">🥗</p>
+        <p style="font-size:1.05em;">
+            Add ingredients to your pantry in the sidebar,<br>
+            then hit <b>Suggest Recipes</b>!
+        </p>
+    </div>
+    """, unsafe_allow_html=True)
 
 # ── Sidebar ────────────────────────────────────────────────
 with st.sidebar:
@@ -184,10 +138,10 @@ with st.sidebar:
         with col1:
             st.image(user_picture, width=48)
         with col2:
-            st.markdown(f"**{user_info.get('name', '')}**")
+            st.markdown(f"**{user_full_name}**")
             st.caption(user_id)
     else:
-        st.markdown(f"**{user_info.get('name', '')}**")
+        st.markdown(f"**{user_full_name}**")
         st.caption(user_id)
 
     st.divider()
@@ -316,15 +270,12 @@ with st.sidebar:
 
     st.divider()
 
-    if st.button("🗑️ Clear Chat"):
-        st.session_state.messages = []
-        st.session_state.thread_id = str(uuid.uuid4())
+    if st.button("🔄 New Suggestions", help="Clear current recipes"):
+        st.session_state.pop("last_recipes", None)
         st.rerun()
 
     if st.button("🚪 Sign out"):
-        components.html('<script>try{localStorage.removeItem("pg_user")}catch(e){}</script>', height=0)
-        del st.session_state.user_info
-        st.rerun()
+        st.logout()
 
     st.divider()
     st.caption("Built with LangGraph + Groq + Supabase")

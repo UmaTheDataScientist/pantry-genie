@@ -11,4 +11,3 @@ statsig
 pydantic
 requests
 supabase
-streamlit-oauth
