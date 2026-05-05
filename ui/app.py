@@ -76,7 +76,10 @@ def _decode_id_token(id_token: str) -> dict:
 # The cookie component needs one render cycle to report values back to Python.
 # On the first render we force a silent rerun; on the second render the cookie is available.
 if "user_info" not in st.session_state:
-    _cookie = cookie_manager.get("pg_user")
+    try:
+        _cookie = cookie_manager.get("pg_user")
+    except Exception:
+        _cookie = None
     if _cookie:
         try:
             st.session_state.user_info = json.loads(_cookie)
