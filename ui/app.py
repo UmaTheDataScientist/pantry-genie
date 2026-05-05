@@ -2,6 +2,7 @@ import streamlit as st
 import uuid
 import sys
 import os
+import json
 
 # ── Path fix for Streamlit Cloud ───────────────────────────
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -80,14 +81,36 @@ if prompt := st.chat_input("e.g. I have chickpeas, spinach and coconut milk...")
         st.session_state.messages.append({"role": "assistant", "content": reply})
 
 # ── Sidebar ────────────────────────────────────────────────
-with st.sidebar:
-    st.header("🥕 Your Pantry")
+def _read_json(path):
     try:
-        from pantry_genie.tools import get_pantry_contents
-        pantry = get_pantry_contents.invoke({})
-        st.info(pantry)
-    except:
-        st.info("Start chatting to update your pantry!")
+        with open(path) as f:
+            return json.load(f)
+    except Exception:
+        return None
+
+with st.sidebar:
+    thread_id = st.session_state.thread_id
+    memory_dir = t.MEMORY_DIR
+
+    st.header("🥕 Your Pantry")
+    pantry_data = _read_json(f"{memory_dir}/pantry_{thread_id}.json")
+    if pantry_data and pantry_data.get("ingredients"):
+        st.info(", ".join(pantry_data["ingredients"]))
+    else:
+        st.info("Pantry is empty.")
+
+    st.divider()
+    st.header("💛 Your Preferences")
+    prefs = _read_json(f"{memory_dir}/profile_{thread_id}.json")
+    if prefs:
+        if prefs.get("spice_level"):
+            st.write(f"🌶️ Spice: **{prefs['spice_level']}**")
+        if prefs.get("dislikes"):
+            st.write(f"🚫 Dislikes: **{', '.join(prefs['dislikes'])}**")
+        if prefs.get("favorite_cuisines"):
+            st.write(f"❤️ Cuisines: **{', '.join(prefs['favorite_cuisines'])}**")
+    else:
+        st.info("No preferences saved yet.")
 
     st.divider()
     if st.button("🗑️ Clear Chat"):
