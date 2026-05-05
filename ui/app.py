@@ -97,5 +97,5 @@ with st.sidebar:
         st.rerun()
 
     st.divider()
-    st.caption("Built with LangGraph + Groq + Pinecone")
+    st.caption("Built with LangGraph + Groq")
     st.caption("🌱 Vegan recipes only")
