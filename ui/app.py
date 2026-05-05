@@ -44,10 +44,9 @@ st.markdown("""
 
 # ── Google OAuth ───────────────────────────────────────────
 from streamlit_oauth import OAuth2Component
-import extra_streamlit_components as stx
-from datetime import datetime, timedelta
+from streamlit_cookies_controller import CookieController
 
-cookie_manager = stx.CookieManager()
+cookie_manager = CookieController()
 
 def _secret(key):
     try:
@@ -99,7 +98,7 @@ if "user_info" not in st.session_state:
         )
     if result and "token" in result:
         _user = _decode_id_token(result["token"]["id_token"])
-        cookie_manager.set("pg_user", json.dumps(_user), expires_at=datetime.now() + timedelta(days=30))
+        cookie_manager.set("pg_user", json.dumps(_user), max_age=30*24*3600)
         st.session_state.user_info = _user
         st.rerun()
     st.stop()

@@ -12,4 +12,4 @@ pydantic
 requests
 supabase
 streamlit-oauth
-extra-streamlit-components
+streamlit-cookies-controller
