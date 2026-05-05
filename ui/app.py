@@ -165,12 +165,13 @@ with st.sidebar:
     pantry_result = supabase.table("pantry").select("ingredients").eq("user_id", user_id).execute()
     ingredients = list(pantry_result.data[0]["ingredients"]) if pantry_result.data else []
 
-    new_item = st.text_input("", placeholder="e.g. tofu, lentils", label_visibility="collapsed", key="new_ingredient")
-    if st.button("➕ Add to Pantry", use_container_width=True) and new_item.strip():
-        new_items = [i.strip().lower() for i in new_item.split(",") if i.strip()]
-        updated = list(dict.fromkeys(ingredients + new_items))
-        supabase.table("pantry").upsert({"user_id": user_id, "ingredients": updated}).execute()
-        st.rerun()
+    with st.form("pantry_add", clear_on_submit=True):
+        new_item = st.text_input("", placeholder="e.g. tofu, lentils", label_visibility="collapsed")
+        if st.form_submit_button("➕ Add to Pantry", use_container_width=True) and new_item.strip():
+            new_items = [i.strip().lower() for i in new_item.split(",") if i.strip()]
+            updated = list(dict.fromkeys(ingredients + new_items))
+            supabase.table("pantry").upsert({"user_id": user_id, "ingredients": updated}).execute()
+            st.rerun()
 
     if ingredients:
         for idx, item in enumerate(ingredients):
@@ -220,10 +221,11 @@ with st.sidebar:
             if st.button("✕", key=f"del_dislike_{idx}"):
                 supabase.table("preferences").upsert({"user_id": user_id, "dislikes": [x for j, x in enumerate(dislikes) if j != idx]}).execute()
                 st.rerun()
-    new_dislike = st.text_input("", placeholder="Add dislike...", label_visibility="collapsed", key="new_dislike")
-    if st.button("➕ Add Dislike", use_container_width=True) and new_dislike.strip():
-        supabase.table("preferences").upsert({"user_id": user_id, "dislikes": dislikes + [new_dislike.strip().lower()]}).execute()
-        st.rerun()
+    with st.form("dislike_add", clear_on_submit=True):
+        new_dislike = st.text_input("", placeholder="Add dislike...", label_visibility="collapsed")
+        if st.form_submit_button("➕ Add Dislike", use_container_width=True) and new_dislike.strip():
+            supabase.table("preferences").upsert({"user_id": user_id, "dislikes": dislikes + [new_dislike.strip().lower()]}).execute()
+            st.rerun()
 
     cuisines = prefs.get("favorite_cuisines") or []
     st.markdown("**❤️ Cuisines**")
@@ -235,10 +237,11 @@ with st.sidebar:
             if st.button("✕", key=f"del_cuisine_{idx}"):
                 supabase.table("preferences").upsert({"user_id": user_id, "favorite_cuisines": [x for j, x in enumerate(cuisines) if j != idx]}).execute()
                 st.rerun()
-    new_cuisine = st.text_input("", placeholder="Add cuisine...", label_visibility="collapsed", key="new_cuisine")
-    if st.button("➕ Add Cuisine", use_container_width=True) and new_cuisine.strip():
-        supabase.table("preferences").upsert({"user_id": user_id, "favorite_cuisines": cuisines + [new_cuisine.strip().lower()]}).execute()
-        st.rerun()
+    with st.form("cuisine_add", clear_on_submit=True):
+        new_cuisine = st.text_input("", placeholder="Add cuisine...", label_visibility="collapsed")
+        if st.form_submit_button("➕ Add Cuisine", use_container_width=True) and new_cuisine.strip():
+            supabase.table("preferences").upsert({"user_id": user_id, "favorite_cuisines": cuisines + [new_cuisine.strip().lower()]}).execute()
+            st.rerun()
 
     st.divider()
 
@@ -249,12 +252,13 @@ with st.sidebar:
     except Exception:
         shop_items = []
 
-    new_shop = st.text_input("", placeholder="e.g. oat milk, paneer", label_visibility="collapsed", key="new_shop")
-    if st.button("➕ Add to List", use_container_width=True) and new_shop.strip():
-        new_shop_items = [i.strip().lower() for i in new_shop.split(",") if i.strip()]
-        updated_shop = list(dict.fromkeys(shop_items + new_shop_items))
-        supabase.table("shopping_list").upsert({"user_id": user_id, "items": updated_shop}).execute()
-        st.rerun()
+    with st.form("shop_add", clear_on_submit=True):
+        new_shop = st.text_input("", placeholder="e.g. oat milk, paneer", label_visibility="collapsed")
+        if st.form_submit_button("➕ Add to List", use_container_width=True) and new_shop.strip():
+            new_shop_items = [i.strip().lower() for i in new_shop.split(",") if i.strip()]
+            updated_shop = list(dict.fromkeys(shop_items + new_shop_items))
+            supabase.table("shopping_list").upsert({"user_id": user_id, "items": updated_shop}).execute()
+            st.rerun()
 
     if shop_items:
         for idx, item in enumerate(shop_items):
