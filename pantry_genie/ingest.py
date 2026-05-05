@@ -22,8 +22,7 @@ def load_recipes(path: str = "data/vegan_recipes.csv") -> pd.DataFrame:
     
     # Filter vegan-friendly (no meat/dairy keywords)
     exclude = ["chicken", "beef", "pork", "lamb", "fish", "shrimp", "bacon",
-               "turkey", "salmon", "tuna", "cheese", "butter", "milk", "cream",
-               "egg", "eggs", "gelatin", "honey", "lard", "mayo", "mayonnaise"]
+               "turkey", "salmon", "tuna", "gelatin", "lard"]
     
     pattern = "|".join(exclude)
     df = df[~df["ingredients"].str.lower().str.contains(pattern, na=False)]

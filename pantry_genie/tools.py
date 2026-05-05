@@ -121,7 +121,7 @@ def search_youtube(recipe_name: str) -> str:
         "https://www.googleapis.com/youtube/v3/search",
         params={
             "part": "snippet",
-            "q": f"{recipe_name} vegan recipe",
+            "q": f"{recipe_name} vegetarian recipe",
             "type": "video",
             "maxResults": 1,
             "key": api_key,
