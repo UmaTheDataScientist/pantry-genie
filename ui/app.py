@@ -2,6 +2,8 @@ import streamlit as st
 import uuid
 import sys
 import os
+import json
+import base64
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -40,21 +42,48 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# ── Auth ───────────────────────────────────────────────────
-if not st.user.is_logged_in:
+# ── Google OAuth ───────────────────────────────────────────
+from streamlit_oauth import OAuth2Component
+
+oauth2 = OAuth2Component(
+    client_id=os.getenv("GOOGLE_CLIENT_ID"),
+    client_secret=os.getenv("GOOGLE_CLIENT_SECRET"),
+    authorize_endpoint="https://accounts.google.com/o/oauth2/auth",
+    token_endpoint="https://oauth2.googleapis.com/token",
+    refresh_token_endpoint="https://oauth2.googleapis.com/token",
+    revoke_token_endpoint="https://oauth2.googleapis.com/revoke",
+)
+
+def _decode_id_token(id_token: str) -> dict:
+    payload = id_token.split(".")[1]
+    payload += "=" * (4 - len(payload) % 4)
+    return json.loads(base64.urlsafe_b64decode(payload))
+
+if "user_info" not in st.session_state:
     st.title("🧞 PantryGenie")
     st.markdown('<p class="subtitle">Your personal vegan recipe assistant 🌱</p>', unsafe_allow_html=True)
     st.divider()
     _, col, _ = st.columns([1, 2, 1])
     with col:
-        if st.button("Sign in with Google 🔐", use_container_width=True):
-            st.login("google")
+        result = oauth2.authorize_button(
+            name="Sign in with Google",
+            redirect_uri=os.getenv("REDIRECT_URI", "https://pantry-genie.streamlit.app"),
+            scope="openid email profile",
+            key="google_login",
+            extras_params={"prompt": "consent", "access_type": "offline"},
+            use_container_width=True,
+            icon="https://www.google.com/favicon.ico",
+        )
+    if result and "token" in result:
+        st.session_state.user_info = _decode_id_token(result["token"]["id_token"])
+        st.rerun()
     st.stop()
 
 # ── User identity ──────────────────────────────────────────
-user_id = st.user.email
-user_name = (st.user.name or "").split()[0] or "there"
-user_picture = getattr(st.user, "picture", "")
+user_info = st.session_state.user_info
+user_id = user_info["email"]
+user_name = user_info.get("given_name") or user_info.get("name", "").split()[0] or "there"
+user_picture = user_info.get("picture", "")
 
 # ── Supabase ───────────────────────────────────────────────
 @st.cache_resource
@@ -114,10 +143,10 @@ with st.sidebar:
         with col1:
             st.image(user_picture, width=48)
         with col2:
-            st.markdown(f"**{st.user.name or ''}**")
+            st.markdown(f"**{user_info.get('name', '')}**")
             st.caption(user_id)
     else:
-        st.markdown(f"**{st.user.name or ''}**")
+        st.markdown(f"**{user_info.get('name', '')}**")
         st.caption(user_id)
 
     st.divider()
@@ -153,7 +182,8 @@ with st.sidebar:
         st.rerun()
 
     if st.button("🚪 Sign out"):
-        st.logout()
+        del st.session_state.user_info
+        st.rerun()
 
     st.divider()
     st.caption("Built with LangGraph + Groq + Supabase")
