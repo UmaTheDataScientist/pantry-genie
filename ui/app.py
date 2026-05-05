@@ -44,9 +44,9 @@ st.markdown("""
 
 # ── Google OAuth ───────────────────────────────────────────
 from streamlit_oauth import OAuth2Component
-from streamlit_cookies_controller import CookieController
+import streamlit.components.v1 as components
 
-cookie_manager = CookieController()
+_APP_URL = os.getenv("REDIRECT_URI", "https://pantry-genie.streamlit.app")
 
 def _secret(key):
     try:
@@ -72,30 +72,27 @@ def _decode_id_token(id_token: str) -> dict:
     payload += "=" * (4 - len(payload) % 4)
     return json.loads(base64.urlsafe_b64decode(payload))
 
-# Flush any pending cookie write from the previous render
-if "pending_cookie" in st.session_state:
-    try:
-        cookie_manager.set("pg_user", st.session_state.pending_cookie, max_age=30*24*3600)
-        del st.session_state.pending_cookie
-    except Exception:
-        pass  # component still not ready — will retry next render
-
-# Restore session from cookie.
-# The cookie component needs one render cycle to report values back to Python.
-# On the first render we force a silent rerun; on the second render the cookie is available.
+# ── Session persistence via localStorage ───────────────────
+# On page load, if session is not in memory, check localStorage.
+# JS writes the stored value into a query param and redirects back;
+# Python reads the param, restores the session, then clears the param.
 if "user_info" not in st.session_state:
-    try:
-        _cookie = cookie_manager.get("pg_user")
-    except Exception:
-        _cookie = None
-    if _cookie:
+    if "_pg" in st.query_params:
         try:
-            st.session_state.user_info = json.loads(_cookie)
+            st.session_state.user_info = json.loads(st.query_params["_pg"])
         except Exception:
             pass
-    elif "cookie_loaded" not in st.session_state:
-        st.session_state.cookie_loaded = True
-        st.rerun()
+        del st.query_params["_pg"]
+    elif "storage_checked" not in st.session_state:
+        st.session_state.storage_checked = True
+        components.html(f"""
+<script>
+try {{
+    var d = localStorage.getItem('pg_user');
+    if (d) window.top.location.href = '{_APP_URL}?_pg=' + encodeURIComponent(d);
+}} catch(e) {{}}
+</script>""", height=0)
+        st.stop()
 
 if "user_info" not in st.session_state:
     st.title("🧞 PantryGenie")
@@ -105,7 +102,7 @@ if "user_info" not in st.session_state:
     with col:
         result = oauth2.authorize_button(
             name="Sign in with Google",
-            redirect_uri=os.getenv("REDIRECT_URI", "https://pantry-genie.streamlit.app"),
+            redirect_uri=_APP_URL,
             scope="openid email profile",
             key="google_login",
             extras_params={"prompt": "consent", "access_type": "offline"},
@@ -115,7 +112,10 @@ if "user_info" not in st.session_state:
     if result and "token" in result:
         _user = _decode_id_token(result["token"]["id_token"])
         st.session_state.user_info = _user
-        st.session_state.pending_cookie = json.dumps(_user)
+        components.html(
+            f'<script>try{{localStorage.setItem("pg_user",{json.dumps(json.dumps(_user))})}}catch(e){{}}</script>',
+            height=0,
+        )
         st.rerun()
     st.stop()
 
@@ -321,7 +321,7 @@ with st.sidebar:
         st.rerun()
 
     if st.button("🚪 Sign out"):
-        cookie_manager.delete("pg_user")
+        components.html('<script>try{localStorage.removeItem("pg_user")}catch(e){}</script>', height=0)
         del st.session_state.user_info
         st.rerun()
 
