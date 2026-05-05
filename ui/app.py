@@ -44,6 +44,10 @@ st.markdown("""
 
 # ── Google OAuth ───────────────────────────────────────────
 from streamlit_oauth import OAuth2Component
+import extra_streamlit_components as stx
+from datetime import datetime, timedelta
+
+cookie_manager = stx.CookieManager()
 
 def _secret(key):
     try:
@@ -69,6 +73,15 @@ def _decode_id_token(id_token: str) -> dict:
     payload += "=" * (4 - len(payload) % 4)
     return json.loads(base64.urlsafe_b64decode(payload))
 
+# Restore session from cookie
+if "user_info" not in st.session_state:
+    _cookie = cookie_manager.get("pg_user")
+    if _cookie:
+        try:
+            st.session_state.user_info = json.loads(_cookie)
+        except Exception:
+            pass
+
 if "user_info" not in st.session_state:
     st.title("🧞 PantryGenie")
     st.markdown('<p class="subtitle">Your personal vegetarian recipe assistant 🌱</p>', unsafe_allow_html=True)
@@ -85,7 +98,9 @@ if "user_info" not in st.session_state:
             icon="https://www.google.com/favicon.ico",
         )
     if result and "token" in result:
-        st.session_state.user_info = _decode_id_token(result["token"]["id_token"])
+        _user = _decode_id_token(result["token"]["id_token"])
+        cookie_manager.set("pg_user", json.dumps(_user), expires_at=datetime.now() + timedelta(days=30))
+        st.session_state.user_info = _user
         st.rerun()
     st.stop()
 
@@ -291,6 +306,7 @@ with st.sidebar:
         st.rerun()
 
     if st.button("🚪 Sign out"):
+        cookie_manager.delete("pg_user")
         del st.session_state.user_info
         st.rerun()
 

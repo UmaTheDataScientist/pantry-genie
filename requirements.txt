@@ -12,3 +12,4 @@ pydantic
 requests
 supabase
 streamlit-oauth
+extra-streamlit-components
