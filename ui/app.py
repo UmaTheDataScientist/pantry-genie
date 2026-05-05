@@ -50,9 +50,7 @@ if "agent" not in st.session_state:
     with st.spinner("🧞 Waking up PantryGenie..."):
         st.session_state.agent = build_agent()
 
-# ── Set thread-local for user isolation ────────────────────
 from pantry_genie import tools as t
-t._thread_local.thread_id = st.session_state.thread_id
 
 # ── Starter message ────────────────────────────────────────
 if not st.session_state.messages:
@@ -116,7 +114,6 @@ with st.sidebar:
     if st.button("🗑️ Clear Chat"):
         st.session_state.messages = []
         st.session_state.thread_id = str(uuid.uuid4())
-        t._thread_local.thread_id = st.session_state.thread_id
         st.rerun()
 
     st.divider()
