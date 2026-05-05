@@ -22,10 +22,15 @@ import asyncio
 # ── Statsig Feature Flags ──────────────────────────────────
 def init_statsig():
     try:
-        statsig.initialize_sync(os.getenv("STATSIG_SERVER_KEY"))
-        print("Statsig initialized")
-    except Exception as e:
-        print(f"Statsig init failed: {e}")
+        key = os.getenv("STATSIG_SERVER_KEY")
+        if key:
+            if hasattr(statsig, "initialize_sync"):
+                statsig.initialize_sync(key)
+            else:
+                import asyncio
+                asyncio.get_event_loop().run_until_complete(statsig.initialize(key))
+    except Exception:
+        pass
 
 init_statsig()
 
