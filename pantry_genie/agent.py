@@ -36,7 +36,7 @@ def get_model_name() -> str:
             os.environ.setdefault(key, value)
     except:
         pass
-    return "meta-llama/llama-4-scout-17b-16e-instruct"
+    return "llama-3.3-70b-versatile"
     
 # ── LLM ───────────────────────────────────────────────────
 def build_llm() -> ChatGroq:
