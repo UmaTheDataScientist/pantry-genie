@@ -6,6 +6,7 @@ langgraph
 langgraph-prebuilt
 pinecone
 streamlit
+streamlit-oauth
 Authlib>=1.3.2
 python-dotenv
 statsig
