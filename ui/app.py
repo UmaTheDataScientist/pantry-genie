@@ -3,6 +3,7 @@ import sys
 import os
 import json
 import base64
+import re
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -43,15 +44,82 @@ st.markdown("""
         margin-top: 48px;
         margin-bottom: 48px;
     }
-    .recipe-area {
+    .recipe-card {
         background: #f7faf7;
-        border-radius: 16px;
-        padding: 24px 28px;
-        border: 1px solid #e0ede0;
-        margin-top: 8px;
+        border-radius: 14px;
+        padding: 20px 24px 16px 24px;
+        border: 1px solid #cfe8cf;
+        margin-bottom: 18px;
     }
+    .recipe-name {
+        font-size: 1.25em;
+        font-weight: 700;
+        color: #1e5c1e;
+        margin-bottom: 10px;
+    }
+    .recipe-field {
+        margin: 6px 0;
+        line-height: 1.55;
+    }
+    .recipe-label {
+        font-weight: 600;
+        color: #2e7d32;
+    }
+    .recipe-meta {
+        display: flex;
+        gap: 24px;
+        margin-top: 10px;
+        flex-wrap: wrap;
+    }
+    .recipe-watch a {
+        color: #d32f2f;
+        text-decoration: none;
+        font-weight: 500;
+    }
+    .recipe-watch a:hover { text-decoration: underline; }
+    .recipe-cooktime { color: #555; font-size: 0.92em; }
 </style>
 """, unsafe_allow_html=True)
+
+
+def _extract_field(text: str, label: str) -> str:
+    """Pull the value of a bold-labeled field out of markdown text."""
+    m = re.search(rf'\*\*{label}:\*\*\s*(.+?)(?=\n\*\*|\Z)', text, re.DOTALL)
+    return m.group(1).strip() if m else ""
+
+
+def _render_recipe_cards(text: str):
+    """Parse recipe markdown and render each recipe as a styled card."""
+    sections = re.split(r'\n?---\n?', text)
+    rendered = 0
+    for section in sections:
+        section = section.strip()
+        if not section or '##' not in section:
+            continue
+        name_m = re.search(r'##\s+(.+)', section)
+        name = name_m.group(1).strip() if name_m else "Recipe"
+        ingredients = _extract_field(section, 'Ingredients')
+        directions = _extract_field(section, 'Directions')
+        cook_time = _extract_field(section, 'Cook time')
+        watch = _extract_field(section, 'Watch')
+
+        with st.container(border=True):
+            st.markdown(f"### {name}")
+            if ingredients:
+                st.markdown(f"**Ingredients:** {ingredients}")
+            if directions:
+                st.markdown(f"**Directions:** {directions}")
+            col_time, col_watch = st.columns([1, 2])
+            with col_time:
+                if cook_time:
+                    st.markdown(f"**Cook time:** {cook_time}")
+            with col_watch:
+                if watch:
+                    st.markdown(f"**Watch:** {watch}")
+        rendered += 1
+
+    if not rendered:
+        st.markdown(text)
 
 # ── OAuth setup ────────────────────────────────────────────
 from streamlit_oauth import OAuth2Component
@@ -157,8 +225,7 @@ if suggest_clicked:
 if st.session_state.get("last_recipes"):
     st.divider()
     st.subheader("🍽️ Your Recipe Suggestions")
-    with st.container(border=True):
-        st.markdown(st.session_state.last_recipes)
+    _render_recipe_cards(st.session_state.last_recipes)
 else:
     st.markdown("""
     <div class="empty-state">

@@ -120,18 +120,25 @@ def _format_recipes(text: str) -> str:
     def make_header(m):
         name = m.group(2).strip()
         rest = m.group(3).strip()
-        # Split rest into labelled sections
-        rest = re.sub(r'\bCook time:\s*', '\n**Cook time:** ', rest)
-        rest = re.sub(r'\bYouTube link:\s*', '\n**Watch:** ', rest)
-        rest = re.sub(r'\bIngredients:\s*', '\n**Ingredients:** ', rest)
-        rest = re.sub(r'\bDirections:\s*', '\n**Directions:** ', rest)
-        return f"\n---\n## 🍲 {name}\n{rest.strip()}"
+        rest = re.sub(r'\bCook time:\s*', '\n\n**Cook time:** ', rest)
+        rest = re.sub(r'\bYouTube link:\s*', '\n\n**Watch:** ', rest)
+        rest = re.sub(r'\bIngredients:\s*', '\n\n**Ingredients:** ', rest)
+        rest = re.sub(r'\bDirections:\s*', '\n\n**Directions:** ', rest)
+        return f"\n---\n## 🍲 {name}\n\n{rest.strip()}"
 
     text = re.sub(
         r'(?m)^(\d+\.\s+)?([A-Z][^:\n]{3,60}):\s+(.+)',
         make_header,
         text,
     )
+
+    # Ensure blank lines before each bold field label so Streamlit renders them on separate lines
+    for label in ("Ingredients", "Directions", "Cook time", "Watch"):
+        text = re.sub(rf'(?<!\n)\n(\*\*{label}:\*\*)', r'\n\n\1', text)
+
+    # Ensure blank lines around --- dividers
+    text = re.sub(r'\n---\n', '\n\n---\n\n', text)
+
     return text.strip()
 
 
