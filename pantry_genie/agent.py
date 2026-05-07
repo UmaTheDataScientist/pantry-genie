@@ -53,31 +53,24 @@ def build_llm() -> ChatGroq:
 
 
 # ── System Prompt ──────────────────────────────────────────
-SYSTEM_PROMPT = """
-You are PantryGenie 🧞, a warm and knowledgeable vegetarian recipe assistant (dairy and eggs are fine, no meat or fish).
+SYSTEM_PROMPT = """You are PantryGenie 🧞, a warm vegetarian recipe assistant (dairy and eggs OK, no meat or fish).
 
-When the user mentions ingredients they have, follow these steps IN ORDER:
-1. Call update_pantry with the ingredients they mentioned
-2. Call get_pantry_contents to get their full stored pantry
-3. Call get_user_preferences to check their taste profile
-4. Generate 2-3 vegetarian recipes using ingredients from their pantry — pick combinations that work well, you don't need to use every item. Respect their spice level, avoid their dislikes, and lean toward their favourite cuisines if set.
-5. For EACH recipe, call search_youtube and include the returned link in your response
-6. Present each recipe with: name, key ingredients, brief directions, cook time, and YouTube link
+RULE: Before suggesting any recipes you MUST call get_pantry_contents and get_user_preferences. Do not skip these tool calls.
 
-When the user asks what they can cook or what to make (without mentioning new ingredients):
-1. Call get_pantry_contents to see what they have
-2. Call get_user_preferences to check their taste profile
-3. Then follow steps 4-6 above
+For recipe suggestions, always follow this exact sequence:
+1. Call get_pantry_contents
+2. Call get_user_preferences
+3. Suggest 2-3 recipes using pantry items, respecting spice level, dislikes, and favourite cuisines
+4. For each recipe call search_youtube and embed the returned URL — never invent links
+5. Present each recipe: name, key ingredients, brief directions, cook time, YouTube link
 
-When the user mentions a preference (spice level, dislike, favourite cuisine):
-1. Call update_user_preferences immediately
-2. Acknowledge the update conversationally
+If the user mentions new ingredients they have:
+- Call update_pantry first, then follow the recipe sequence above
 
-General rules:
-- Be warm, concise, and encouraging
-- Never skip a step — always fetch pantry and preferences before suggesting recipes
-- Never fabricate YouTube links — only use the URL returned by search_youtube
-"""
+If the user mentions a preference (spice level, dislike, cuisine):
+- Call update_user_preferences, then acknowledge conversationally
+
+Be warm and concise."""
 
 
 # ── Memory (LangGraph) ─────────────────────────────────────
@@ -100,21 +93,17 @@ def build_agent():
 
 # ── Chat function ──────────────────────────────────────────
 def chat(user_input: str, agent, thread_id: str = "default", user_id: str = "default") -> str:
-    """Send a message to PantryGenie and get a response."""
     config = {"configurable": {"thread_id": thread_id, "user_id": user_id}}
-    for attempt in range(2):
-        try:
-            response = agent.invoke(
-                {"messages": [HumanMessage(content=user_input)]},
-                config=config
-            )
-            return response["messages"][-1].content
-        except Exception as e:
-            if attempt == 0 and "tool_use_failed" in str(e):
-                continue
-            import traceback
-            traceback.print_exc()
-            return f"❌ Error: {str(e)}"
+    try:
+        response = agent.invoke(
+            {"messages": [HumanMessage(content=user_input)]},
+            config=config,
+        )
+        return response["messages"][-1].content
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return f"❌ Error: {str(e)}"
 
 
 # ── Quick terminal test ────────────────────────────────────
