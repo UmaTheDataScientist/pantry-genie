@@ -16,6 +16,9 @@ try:
 except:
     pass
 
+from pantry_genie.agent import build_agent, chat
+
+# ── Config ─────────────────────────────────────────────────
 st.set_page_config(
     page_title="PantryGenie 🧞",
     page_icon="🧞",
@@ -33,6 +36,19 @@ st.markdown("""
         font-size: 0.9em;
         margin-top: -15px;
         margin-bottom: 20px;
+    }
+    .empty-state {
+        text-align: center;
+        color: #bbb;
+        margin-top: 48px;
+        margin-bottom: 48px;
+    }
+    .recipe-area {
+        background: #f7faf7;
+        border-radius: 16px;
+        padding: 24px 28px;
+        border: 1px solid #e0ede0;
+        margin-top: 8px;
     }
 </style>
 """, unsafe_allow_html=True)
@@ -86,21 +102,224 @@ if "user_info" not in st.session_state:
             st.rerun()
     st.stop()
 
-# ── Logged-in view ─────────────────────────────────────────
+# ── User identity ──────────────────────────────────────────
 user_info = st.session_state.user_info
-user_name = (user_info.get("name") or "there").split()[0]
 user_id = user_info.get("email", "")
+user_name = (user_info.get("name") or "there").split()[0]
+user_picture = user_info.get("picture", "") or ""
+user_full_name = user_info.get("name") or ""
 
+# ── Supabase ───────────────────────────────────────────────
+@st.cache_resource
+def get_supabase():
+    from supabase import create_client
+    return create_client(os.getenv("SUPABASE_URL"), os.getenv("SUPABASE_KEY"))
+
+supabase = get_supabase()
+
+# ── Session state ──────────────────────────────────────────
+if "agent" not in st.session_state:
+    with st.spinner("🧞 Waking up PantryGenie..."):
+        st.session_state.agent = build_agent()
+
+# ── Header ─────────────────────────────────────────────────
 st.title("🧞 PantryGenie")
-st.markdown(f'<p class="subtitle">Hey {user_name}! Welcome back 🌱</p>', unsafe_allow_html=True)
+st.markdown(f'<p class="subtitle">Hey {user_name}! Let\'s see what we can cook today 🌱</p>', unsafe_allow_html=True)
 st.divider()
-st.info("You are signed in. More features coming soon!")
 
-with st.sidebar:
-    st.markdown(f"**{user_info.get('name', '')}**")
-    st.caption(user_id)
+# ── Special request input ──────────────────────────────────
+special_request = st.text_input(
+    "Any special request?",
+    placeholder="e.g. quick meal, Italian tonight, high protein, light lunch...",
+)
+
+# ── Suggest button ─────────────────────────────────────────
+_, btn_col, _ = st.columns([1, 2, 1])
+with btn_col:
+    suggest_clicked = st.button("✨ Suggest Recipes", use_container_width=True, type="primary")
+
+# ── Run agent on click ─────────────────────────────────────
+if suggest_clicked:
+    prompt = "Suggest recipes from my pantry."
+    if special_request.strip():
+        prompt += f" Special request: {special_request.strip()}"
+
+    with st.spinner("🧞 Cooking up some ideas..."):
+        reply = chat(
+            user_input=prompt,
+            agent=st.session_state.agent,
+            thread_id=user_id,
+            user_id=user_id,
+        )
+    st.session_state.last_recipes = reply
+
+# ── Recipe display ─────────────────────────────────────────
+if st.session_state.get("last_recipes"):
     st.divider()
+    st.subheader("🍽️ Your Recipe Suggestions")
+    st.markdown(
+        f'<div class="recipe-area">{st.session_state.last_recipes}</div>',
+        unsafe_allow_html=True,
+    )
+else:
+    st.markdown("""
+    <div class="empty-state">
+        <p style="font-size:3em; margin-bottom:8px;">🥗</p>
+        <p style="font-size:1.05em;">
+            Add ingredients to your pantry in the sidebar,<br>
+            then hit <b>Suggest Recipes</b>!
+        </p>
+    </div>
+    """, unsafe_allow_html=True)
+
+# ── Sidebar ────────────────────────────────────────────────
+with st.sidebar:
+    if user_picture:
+        col1, col2 = st.columns([1, 3])
+        with col1:
+            st.image(user_picture, width=48)
+        with col2:
+            st.markdown(f"**{user_full_name}**")
+            st.caption(user_id)
+    else:
+        st.markdown(f"**{user_full_name}**")
+        st.caption(user_id)
+
+    st.divider()
+
+    st.header("🥕 Your Pantry")
+    pantry_result = supabase.table("pantry").select("ingredients").eq("user_id", user_id).execute()
+    ingredients = list(pantry_result.data[0]["ingredients"]) if pantry_result.data else []
+
+    with st.form("pantry_add", clear_on_submit=True):
+        new_item = st.text_input("", placeholder="e.g. tofu, lentils", label_visibility="collapsed")
+        if st.form_submit_button("➕ Add to Pantry", use_container_width=True) and new_item.strip():
+            new_items = [i.strip().lower() for i in new_item.split(",") if i.strip()]
+            updated = list(dict.fromkeys(ingredients + new_items))
+            supabase.table("pantry").upsert({"user_id": user_id, "ingredients": updated}).execute()
+            st.rerun()
+
+    if ingredients:
+        for idx, item in enumerate(ingredients):
+            c1, c2, c3 = st.columns([4, 1, 1])
+            with c1:
+                st.markdown(f"• {item.strip().capitalize()}")
+            with c2:
+                if st.button("🛒", key=f"shop_pantry_{idx}", help="Move to shopping list"):
+                    updated_pantry = [x for j, x in enumerate(ingredients) if j != idx]
+                    supabase.table("pantry").upsert({"user_id": user_id, "ingredients": updated_pantry}).execute()
+                    shop_res = supabase.table("shopping_list").select("items").eq("user_id", user_id).execute()
+                    shop_items = list(shop_res.data[0]["items"]) if shop_res.data else []
+                    if item.strip().lower() not in shop_items:
+                        shop_items.append(item.strip().lower())
+                    supabase.table("shopping_list").upsert({"user_id": user_id, "items": shop_items}).execute()
+                    st.rerun()
+            with c3:
+                if st.button("✕", key=f"del_pantry_{idx}"):
+                    updated = [x for j, x in enumerate(ingredients) if j != idx]
+                    supabase.table("pantry").upsert({"user_id": user_id, "ingredients": updated}).execute()
+                    st.rerun()
+    else:
+        st.info("Pantry is empty.")
+
+    st.divider()
+
+    st.header("💛 Your Preferences")
+    prefs_result = supabase.table("preferences").select("*").eq("user_id", user_id).execute()
+    prefs = prefs_result.data[0] if prefs_result.data else {}
+
+    spice_options = ["", "low", "medium", "high"]
+    current_spice = prefs.get("spice_level") or ""
+    spice_idx = spice_options.index(current_spice) if current_spice in spice_options else 0
+    new_spice = st.selectbox("🌶️ Spice level", spice_options, index=spice_idx,
+                             format_func=lambda x: x.capitalize() if x else "Not set")
+    if new_spice != current_spice:
+        supabase.table("preferences").upsert({"user_id": user_id, "spice_level": new_spice}).execute()
+        st.rerun()
+
+    dislikes = prefs.get("dislikes") or []
+    st.markdown("**🚫 Dislikes**")
+    for idx, d in enumerate(dislikes):
+        c1, c2 = st.columns([5, 1])
+        with c1:
+            st.markdown(f"• {d.capitalize()}")
+        with c2:
+            if st.button("✕", key=f"del_dislike_{idx}"):
+                supabase.table("preferences").upsert({"user_id": user_id, "dislikes": [x for j, x in enumerate(dislikes) if j != idx]}).execute()
+                st.rerun()
+    with st.form("dislike_add", clear_on_submit=True):
+        new_dislike = st.text_input("", placeholder="Add dislike...", label_visibility="collapsed")
+        if st.form_submit_button("➕ Add Dislike", use_container_width=True) and new_dislike.strip():
+            supabase.table("preferences").upsert({"user_id": user_id, "dislikes": dislikes + [new_dislike.strip().lower()]}).execute()
+            st.rerun()
+
+    cuisines = prefs.get("favorite_cuisines") or []
+    st.markdown("**❤️ Cuisines**")
+    for idx, cuisine in enumerate(cuisines):
+        c1, c2 = st.columns([5, 1])
+        with c1:
+            st.markdown(f"• {cuisine.capitalize()}")
+        with c2:
+            if st.button("✕", key=f"del_cuisine_{idx}"):
+                supabase.table("preferences").upsert({"user_id": user_id, "favorite_cuisines": [x for j, x in enumerate(cuisines) if j != idx]}).execute()
+                st.rerun()
+    with st.form("cuisine_add", clear_on_submit=True):
+        new_cuisine = st.text_input("", placeholder="Add cuisine...", label_visibility="collapsed")
+        if st.form_submit_button("➕ Add Cuisine", use_container_width=True) and new_cuisine.strip():
+            supabase.table("preferences").upsert({"user_id": user_id, "favorite_cuisines": cuisines + [new_cuisine.strip().lower()]}).execute()
+            st.rerun()
+
+    st.divider()
+
+    st.header("🛒 Shopping List")
+    try:
+        shop_res = supabase.table("shopping_list").select("items").eq("user_id", user_id).execute()
+        shop_items = list(shop_res.data[0]["items"]) if shop_res.data else []
+    except Exception:
+        shop_items = []
+
+    with st.form("shop_add", clear_on_submit=True):
+        new_shop = st.text_input("", placeholder="e.g. oat milk, paneer", label_visibility="collapsed")
+        if st.form_submit_button("➕ Add to List", use_container_width=True) and new_shop.strip():
+            new_shop_items = [i.strip().lower() for i in new_shop.split(",") if i.strip()]
+            updated_shop = list(dict.fromkeys(shop_items + new_shop_items))
+            supabase.table("shopping_list").upsert({"user_id": user_id, "items": updated_shop}).execute()
+            st.rerun()
+
+    if shop_items:
+        for idx, item in enumerate(shop_items):
+            c1, c2, c3 = st.columns([4, 1, 1])
+            with c1:
+                st.markdown(f"• {item.strip().capitalize()}")
+            with c2:
+                if st.button("✓", key=f"bought_{idx}", help="Purchased — move to pantry"):
+                    updated_shop = [x for j, x in enumerate(shop_items) if j != idx]
+                    supabase.table("shopping_list").upsert({"user_id": user_id, "items": updated_shop}).execute()
+                    pantry_res = supabase.table("pantry").select("ingredients").eq("user_id", user_id).execute()
+                    pantry_items = list(pantry_res.data[0]["ingredients"]) if pantry_res.data else []
+                    if item.strip().lower() not in pantry_items:
+                        pantry_items.append(item.strip().lower())
+                    supabase.table("pantry").upsert({"user_id": user_id, "ingredients": pantry_items}).execute()
+                    st.rerun()
+            with c3:
+                if st.button("✕", key=f"del_shop_{idx}"):
+                    updated_shop = [x for j, x in enumerate(shop_items) if j != idx]
+                    supabase.table("shopping_list").upsert({"user_id": user_id, "items": updated_shop}).execute()
+                    st.rerun()
+    else:
+        st.info("Shopping list is empty.")
+
+    st.divider()
+
+    if st.button("🔄 New Suggestions", help="Clear current recipes"):
+        st.session_state.pop("last_recipes", None)
+        st.rerun()
+
     if st.button("🚪 Sign out"):
         st.session_state.pop("user_info", None)
         st.session_state.pop("token", None)
         st.rerun()
+
+    st.divider()
+    st.caption("Built with LangGraph + Groq + Supabase")
+    st.caption("🌱 Vegetarian recipes")
