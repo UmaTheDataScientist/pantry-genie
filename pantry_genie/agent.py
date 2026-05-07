@@ -1,4 +1,6 @@
 import os
+import re
+import requests
 from langchain_groq import ChatGroq
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 from langchain_core.messages import HumanMessage, AIMessage
@@ -57,28 +59,80 @@ SYSTEM_PROMPT = """You are PantryGenie 🧞, a warm vegetarian recipe assistant 
 
 RULE: Before suggesting any recipes you MUST call get_pantry_contents and get_user_preferences. Do not skip these tool calls.
 
-For recipe suggestions, always follow this exact sequence:
+For recipe suggestions, follow this sequence:
 1. Call get_pantry_contents
 2. Call get_user_preferences
-3. Call search_youtube once for each recipe you plan to suggest (one call per recipe)
-4. Then write your final response in this markdown format for each recipe:
+3. Suggest 2-3 recipes using pantry items, respecting preferences
+4. For EACH recipe call search_youtube and include the returned link
+
+Format each recipe exactly like this (use markdown):
 
 ---
-## 🍲 [Recipe Name]
+## 🍲 Recipe Name
 **Ingredients:** item1, item2, item3
-**Directions:** Brief 2-3 sentence description.
+**Directions:** 2-3 sentences.
 **Cook time:** X minutes
-**Watch:** [paste the exact URL returned by search_youtube here]
+**Watch:** [the link returned by search_youtube]
 
-CRITICAL: The search_youtube tool returns a markdown link like ▶️ [title](url). Paste it exactly. Never write {"recipe_name": ...} or any JSON in your response.
+If the user mentions new ingredients: call update_pantry first, then suggest recipes.
+If the user mentions a preference: call update_user_preferences, then acknowledge.
 
-If the user mentions new ingredients they have:
-- Call update_pantry first, then follow the recipe sequence above
+Be warm and concise."""
 
-If the user mentions a preference (spice level, dislike, cuisine):
-- Call update_user_preferences, then acknowledge conversationally
 
-Always use markdown formatting. Be warm and concise."""
+# ── YouTube fallback ───────────────────────────────────────
+def _resolve_youtube_tags(text: str) -> str:
+    """Replace leaked <function=search_youtube>{...}</function> tags with real links."""
+    pattern = r'<function=search_youtube>\{"recipe_name":\s*"([^"]+)"\}</function>'
+
+    def fetch(match):
+        name = match.group(1)
+        api_key = os.getenv("YOUTUBE_API_KEY", "")
+        if not api_key:
+            return "*(no YouTube key)*"
+        try:
+            resp = requests.get(
+                "https://www.googleapis.com/youtube/v3/search",
+                params={"part": "snippet", "q": f"{name} vegetarian recipe",
+                        "type": "video", "maxResults": 1, "key": api_key},
+                timeout=5,
+            )
+            items = resp.json().get("items", [])
+            if items:
+                vid = items[0]["id"]["videoId"]
+                title = items[0]["snippet"]["title"]
+                return f"[▶️ {title}](https://www.youtube.com/watch?v={vid})"
+        except Exception:
+            pass
+        return "*(video unavailable)*"
+
+    return re.sub(pattern, fetch, text)
+
+
+def _format_recipes(text: str) -> str:
+    """Convert plain-text recipe list into clean markdown."""
+    text = _resolve_youtube_tags(text)
+
+    # Remove filler intro line
+    text = re.sub(r'^(here are [^\n]+\n+)', '', text, flags=re.IGNORECASE)
+
+    # Turn "1. Recipe Name: ..." or "Recipe Name: ..." lines into ## headers
+    def make_header(m):
+        name = m.group(2).strip()
+        rest = m.group(3).strip()
+        # Split rest into labelled sections
+        rest = re.sub(r'\bCook time:\s*', '\n**Cook time:** ', rest)
+        rest = re.sub(r'\bYouTube link:\s*', '\n**Watch:** ', rest)
+        rest = re.sub(r'\bIngredients:\s*', '\n**Ingredients:** ', rest)
+        rest = re.sub(r'\bDirections:\s*', '\n**Directions:** ', rest)
+        return f"\n---\n## 🍲 {name}\n{rest.strip()}"
+
+    text = re.sub(
+        r'(?m)^(\d+\.\s+)?([A-Z][^:\n]{3,60}):\s+(.+)',
+        make_header,
+        text,
+    )
+    return text.strip()
 
 
 # ── Memory (LangGraph) ─────────────────────────────────────
@@ -107,7 +161,7 @@ def chat(user_input: str, agent, thread_id: str = "default", user_id: str = "def
             {"messages": [HumanMessage(content=user_input)]},
             config=config,
         )
-        return response["messages"][-1].content
+        return _format_recipes(response["messages"][-1].content)
     except Exception as e:
         import traceback
         traceback.print_exc()
