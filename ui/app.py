@@ -157,10 +157,8 @@ if suggest_clicked:
 if st.session_state.get("last_recipes"):
     st.divider()
     st.subheader("🍽️ Your Recipe Suggestions")
-    st.markdown(
-        f'<div class="recipe-area">{st.session_state.last_recipes}</div>',
-        unsafe_allow_html=True,
-    )
+    with st.container(border=True):
+        st.markdown(st.session_state.last_recipes)
 else:
     st.markdown("""
     <div class="empty-state">
