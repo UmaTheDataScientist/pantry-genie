@@ -13,3 +13,4 @@ statsig
 pydantic
 requests
 supabase
+streamlit-cookies-controller

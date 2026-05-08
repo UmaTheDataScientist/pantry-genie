@@ -149,20 +149,24 @@ def _decode_id_token(id_token: str) -> dict:
     payload += "=" * (4 - len(payload) % 4)
     return json.loads(base64.urlsafe_b64decode(payload))
 
-# ── Server-side session store (survives page refresh via URL param) ─────────
+# ── Server-side session store (survives page refresh via cookie) ─────────────
+from streamlit_cookies_controller import CookieController
+
 @st.cache_resource
 def _session_store():
     return {}
 
 _sessions = _session_store()
+_cookie = CookieController(key="pg_cookie_ctrl")
 
-# Restore session from ?sid= query param (present after login, survives refresh)
-_sid = st.query_params.get("sid", "")
-if _sid and "user_info" not in st.session_state:
-    _saved = _sessions.get(_sid)
-    if _saved:
-        st.session_state.user_info = _saved["user_info"]
-        st.session_state.token = _saved.get("token")
+# Restore session from cookie (set at login, invisible in URL)
+if "user_info" not in st.session_state:
+    _sid = _cookie.get("pg_sid")
+    if _sid:
+        _saved = _sessions.get(_sid)
+        if _saved:
+            st.session_state.user_info = _saved["user_info"]
+            st.session_state.token = _saved.get("token")
 
 # ── Login gate ─────────────────────────────────────────────
 if "user_info" not in st.session_state:
@@ -186,7 +190,7 @@ if "user_info" not in st.session_state:
             st.session_state.token = result["token"]
             sid = str(uuid.uuid4())
             _sessions[sid] = {"user_info": user_info, "token": result["token"]}
-            st.query_params["sid"] = sid
+            _cookie.set("pg_sid", sid)
             st.rerun()
     st.stop()
 
@@ -401,10 +405,10 @@ with st.sidebar:
         st.rerun()
 
     if st.button("🚪 Sign out"):
-        sid = st.query_params.get("sid", "")
-        if sid:
-            _sessions.pop(sid, None)
-            st.query_params.clear()
+        _sid = _cookie.get("pg_sid")
+        if _sid:
+            _sessions.pop(_sid, None)
+        _cookie.remove("pg_sid")
         st.session_state.pop("user_info", None)
         st.session_state.pop("token", None)
         st.rerun()
