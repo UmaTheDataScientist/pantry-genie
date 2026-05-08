@@ -36,7 +36,7 @@ COMMON_INGREDIENTS = [
 st.set_page_config(
     page_title="PantryGenie 🧞",
     page_icon="🧞",
-    layout="centered",
+    layout="wide",
     initial_sidebar_state="collapsed",
 )
 
@@ -45,9 +45,9 @@ st.markdown("""
     /* ── Base layout ─────────────────────────── */
     .block-container {
         padding-top: 1.2rem !important;
-        padding-left: 1.2rem !important;
-        padding-right: 1.2rem !important;
-        max-width: 720px !important;
+        padding-left: 1.5rem !important;
+        padding-right: 1.5rem !important;
+        max-width: 1100px !important;
     }
 
     /* ── Mobile overrides ────────────────────── */
@@ -264,123 +264,125 @@ with hcol_user:
 tab_recipes, tab_shop, tab_prefs = st.tabs(["🍽️ Recipes", "🛒 Shopping", "💛 Prefs"])
 
 # ════════════════════════════════════════════════════════════
-# RECIPES TAB  (pantry + suggestions + recipe output)
+# RECIPES TAB  —  pantry panel left, recipes right
 # ════════════════════════════════════════════════════════════
 with tab_recipes:
     pantry_result = supabase.table("pantry").select("ingredients").eq("user_id", user_id).execute()
     ingredients = list(pantry_result.data[0]["ingredients"]) if pantry_result.data else []
 
-    # ── Quick-add suggestions ─────────────────────────────────
-    suggestions = [s for s in st.session_state.pantry_suggestions if s not in ingredients]
-    if suggestions:
-        st.markdown("**✨ What's in your pantry?**")
-        st.markdown('<div class="chip-row">', unsafe_allow_html=True)
-        chip_cols = st.columns(3)
-        for i, suggestion in enumerate(suggestions):
-            with chip_cols[i % 3]:
-                if st.button(suggestion.capitalize(), key=f"suggest_{suggestion}", use_container_width=True):
-                    updated = list(dict.fromkeys(ingredients + [suggestion]))
-                    supabase.table("pantry").upsert({"user_id": user_id, "ingredients": updated}).execute()
-                    st.session_state.pantry_suggestions = random.sample(COMMON_INGREDIENTS, 12)
-                    st.rerun()
-        st.markdown('</div>', unsafe_allow_html=True)
+    col_pantry, col_recipes = st.columns([2, 3], gap="large")
 
-    # ── Add custom item ───────────────────────────────────────
-    with st.form("pantry_add", clear_on_submit=True):
-        ci1, ci2 = st.columns([4, 1])
-        with ci1:
-            new_item = st.text_input("", placeholder="Type an ingredient...", label_visibility="collapsed")
-        with ci2:
-            add_clicked = st.form_submit_button("➕ Add", use_container_width=True)
-        if add_clicked and new_item.strip():
-            new_items = [i.strip().lower() for i in new_item.split(",") if i.strip()]
-            updated = list(dict.fromkeys(ingredients + new_items))
-            supabase.table("pantry").upsert({"user_id": user_id, "ingredients": updated}).execute()
-            st.rerun()
+    # ── LEFT: pantry panel ────────────────────────────────────
+    with col_pantry:
+        st.markdown("#### 🥕 What's in your pantry?")
 
-    # ── Pantry items list ─────────────────────────────────────
-    if ingredients:
-        st.caption(f"🥕 {len(ingredients)} item{'s' if len(ingredients) != 1 else ''} in your pantry")
-        for idx, item in enumerate(ingredients):
-            if st.session_state.editing_pantry == idx:
-                edit_key = f"edit_pantry_val_{idx}"
-                if edit_key not in st.session_state:
-                    st.session_state[edit_key] = item
-                c1, c2, c3 = st.columns([4, 1, 1])
-                with c1:
-                    st.text_input("", key=edit_key, label_visibility="collapsed")
-                with c2:
-                    if st.button("✓", key=f"save_pantry_{idx}"):
-                        new_val = st.session_state[edit_key].strip().lower()
-                        if new_val:
-                            updated = [new_val if j == idx else x for j, x in enumerate(ingredients)]
-                            supabase.table("pantry").upsert({"user_id": user_id, "ingredients": updated}).execute()
-                        st.session_state.editing_pantry = None
-                        st.rerun()
-                with c3:
-                    if st.button("✕", key=f"cancel_pantry_{idx}"):
-                        st.session_state.editing_pantry = None
-                        st.rerun()
-            else:
-                c1, c2, c3, c4 = st.columns([3, 1, 1, 1])
-                with c1:
-                    st.markdown(f"• {item.strip().capitalize()}")
-                with c2:
-                    if st.button("✏️", key=f"edit_pantry_{idx}"):
-                        st.session_state.editing_pantry = idx
-                        st.session_state[f"edit_pantry_val_{idx}"] = item
-                        st.rerun()
-                with c3:
-                    if st.button("🛒", key=f"shop_pantry_{idx}", help="Move to shopping list"):
-                        updated_pantry = [x for j, x in enumerate(ingredients) if j != idx]
-                        supabase.table("pantry").upsert({"user_id": user_id, "ingredients": updated_pantry}).execute()
-                        shop_res = supabase.table("shopping_list").select("items").eq("user_id", user_id).execute()
-                        shop_items = list(shop_res.data[0]["items"]) if shop_res.data else []
-                        if item.strip().lower() not in shop_items:
-                            shop_items.append(item.strip().lower())
-                        supabase.table("shopping_list").upsert({"user_id": user_id, "items": shop_items}).execute()
-                        st.rerun()
-                with c4:
-                    if st.button("✕", key=f"del_pantry_{idx}"):
-                        updated = [x for j, x in enumerate(ingredients) if j != idx]
+        # Quick-add chips
+        suggestions = [s for s in st.session_state.pantry_suggestions if s not in ingredients]
+        if suggestions:
+            st.markdown('<div class="chip-row">', unsafe_allow_html=True)
+            chip_cols = st.columns(2)
+            for i, suggestion in enumerate(suggestions):
+                with chip_cols[i % 2]:
+                    if st.button(suggestion.capitalize(), key=f"suggest_{suggestion}", use_container_width=True):
+                        updated = list(dict.fromkeys(ingredients + [suggestion]))
                         supabase.table("pantry").upsert({"user_id": user_id, "ingredients": updated}).execute()
+                        st.session_state.pantry_suggestions = random.sample(COMMON_INGREDIENTS, 12)
                         st.rerun()
+            st.markdown('</div>', unsafe_allow_html=True)
 
-    # ── Recipe suggestion ─────────────────────────────────────
-    st.divider()
-    special_request = st.text_input(
-        "Any special request?",
-        placeholder="e.g. quick meal, Italian tonight, high protein...",
-    )
-    suggest_clicked = st.button("✨ Suggest Recipes", use_container_width=True, type="primary")
+        # Custom add
+        with st.form("pantry_add", clear_on_submit=True):
+            new_item = st.text_input("", placeholder="Add ingredient...", label_visibility="collapsed")
+            if st.form_submit_button("➕ Add", use_container_width=True) and new_item.strip():
+                new_items = [i.strip().lower() for i in new_item.split(",") if i.strip()]
+                updated = list(dict.fromkeys(ingredients + new_items))
+                supabase.table("pantry").upsert({"user_id": user_id, "ingredients": updated}).execute()
+                st.rerun()
 
-    if suggest_clicked:
-        prompt = "Suggest recipes from my pantry."
-        if special_request.strip():
-            prompt += f" Special request: {special_request.strip()}"
-        with st.spinner("🧞 Cooking up some ideas..."):
-            reply = chat(
-                user_input=prompt,
-                agent=st.session_state.agent,
-                thread_id=user_id,
-                user_id=user_id,
-            )
-        st.session_state.last_recipes = reply
+        # Current pantry items
+        if ingredients:
+            st.caption(f"{len(ingredients)} item{'s' if len(ingredients) != 1 else ''}")
+            for idx, item in enumerate(ingredients):
+                if st.session_state.editing_pantry == idx:
+                    edit_key = f"edit_pantry_val_{idx}"
+                    if edit_key not in st.session_state:
+                        st.session_state[edit_key] = item
+                    ec1, ec2, ec3 = st.columns([4, 1, 1])
+                    with ec1:
+                        st.text_input("", key=edit_key, label_visibility="collapsed")
+                    with ec2:
+                        if st.button("✓", key=f"save_pantry_{idx}"):
+                            new_val = st.session_state[edit_key].strip().lower()
+                            if new_val:
+                                updated = [new_val if j == idx else x for j, x in enumerate(ingredients)]
+                                supabase.table("pantry").upsert({"user_id": user_id, "ingredients": updated}).execute()
+                            st.session_state.editing_pantry = None
+                            st.rerun()
+                    with ec3:
+                        if st.button("✕", key=f"cancel_pantry_{idx}"):
+                            st.session_state.editing_pantry = None
+                            st.rerun()
+                else:
+                    ic1, ic2, ic3, ic4 = st.columns([3, 1, 1, 1])
+                    with ic1:
+                        st.markdown(f"• {item.strip().capitalize()}")
+                    with ic2:
+                        if st.button("✏️", key=f"edit_pantry_{idx}"):
+                            st.session_state.editing_pantry = idx
+                            st.session_state[f"edit_pantry_val_{idx}"] = item
+                            st.rerun()
+                    with ic3:
+                        if st.button("🛒", key=f"shop_pantry_{idx}", help="Move to shopping list"):
+                            updated_pantry = [x for j, x in enumerate(ingredients) if j != idx]
+                            supabase.table("pantry").upsert({"user_id": user_id, "ingredients": updated_pantry}).execute()
+                            shop_res = supabase.table("shopping_list").select("items").eq("user_id", user_id).execute()
+                            shop_items = list(shop_res.data[0]["items"]) if shop_res.data else []
+                            if item.strip().lower() not in shop_items:
+                                shop_items.append(item.strip().lower())
+                            supabase.table("shopping_list").upsert({"user_id": user_id, "items": shop_items}).execute()
+                            st.rerun()
+                    with ic4:
+                        if st.button("✕", key=f"del_pantry_{idx}"):
+                            updated = [x for j, x in enumerate(ingredients) if j != idx]
+                            supabase.table("pantry").upsert({"user_id": user_id, "ingredients": updated}).execute()
+                            st.rerun()
 
-    if st.session_state.get("last_recipes"):
-        st.divider()
-        st.subheader("🍽️ Your Recipe Suggestions")
-        _render_recipe_cards(st.session_state.last_recipes)
-        if st.button("🔄 Clear & start over", use_container_width=True):
-            st.session_state.pop("last_recipes", None)
-            st.rerun()
-    elif not ingredients:
-        st.markdown("""
-        <div class="empty-state">
-            <p style="font-size:2.8em; margin-bottom:8px;">🥗</p>
-            <p style="font-size:1em;">Tap an ingredient above to get started!</p>
-        </div>
-        """, unsafe_allow_html=True)
+    # ── RIGHT: recipe panel ───────────────────────────────────
+    with col_recipes:
+        st.markdown("#### 🍽️ Recipes")
+        special_request = st.text_input(
+            "Any special request?",
+            placeholder="e.g. quick meal, Italian tonight...",
+        )
+        suggest_clicked = st.button("✨ Suggest Recipes", use_container_width=True, type="primary")
+
+        if suggest_clicked:
+            prompt = "Suggest recipes from my pantry."
+            if special_request.strip():
+                prompt += f" Special request: {special_request.strip()}"
+            with st.spinner("🧞 Cooking up some ideas..."):
+                reply = chat(
+                    user_input=prompt,
+                    agent=st.session_state.agent,
+                    thread_id=user_id,
+                    user_id=user_id,
+                )
+            st.session_state.last_recipes = reply
+
+        if st.session_state.get("last_recipes"):
+            _render_recipe_cards(st.session_state.last_recipes)
+            if st.button("🔄 Clear & start over", use_container_width=True):
+                st.session_state.pop("last_recipes", None)
+                st.rerun()
+        else:
+            st.markdown("""
+            <div class="empty-state">
+                <p style="font-size:2.5em; margin-bottom:6px;">🥗</p>
+                <p style="font-size:0.95em;">
+                    Pick some ingredients,<br>then hit <b>Suggest Recipes</b>!
+                </p>
+            </div>
+            """, unsafe_allow_html=True)
 
 # ════════════════════════════════════════════════════════════
 # SHOPPING TAB
