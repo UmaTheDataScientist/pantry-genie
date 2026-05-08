@@ -13,4 +13,3 @@ statsig
 pydantic
 requests
 supabase
-extra-streamlit-components

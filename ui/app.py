@@ -4,7 +4,6 @@ import os
 import json
 import base64
 import re
-from datetime import datetime, timedelta
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -149,25 +148,29 @@ def _decode_id_token(id_token: str) -> dict:
     payload += "=" * (4 - len(payload) % 4)
     return json.loads(base64.urlsafe_b64decode(payload))
 
-# ── Cookie-based session (survives page refresh and server restarts) ──────────
-import extra_streamlit_components as stx
+# ── Supabase ───────────────────────────────────────────────
+@st.cache_resource
+def get_supabase():
+    from supabase import create_client
+    return create_client(os.getenv("SUPABASE_URL"), os.getenv("SUPABASE_KEY"))
 
-_cm = stx.CookieManager(key="pg_cm")
-_cookies = _cm.get_all()
+supabase = get_supabase()
 
-# get_all() returns None while the JS component is initialising.
-# It triggers an automatic rerun once ready — stop here so we never
-# flash the login screen during that brief initialisation window.
-if _cookies is None:
-    st.stop()
+# ── Session restore ────────────────────────────────────────
+# streamlit_session is a browser cookie Streamlit sets itself.
+# It is sent in every HTTP/WebSocket request so st.context.cookies
+# reads it synchronously — no JavaScript, no iframes, no race conditions.
+# We use it as a stable key into the Supabase sessions table.
+_st_session = st.context.cookies.get("streamlit_session", "")
 
-if "user_info" not in st.session_state:
-    _raw = _cookies.get("pg_user_info", "")
-    if _raw:
-        try:
-            st.session_state.user_info = json.loads(_raw)
-        except Exception:
-            pass
+if "user_info" not in st.session_state and _st_session:
+    try:
+        _row = supabase.table("sessions").select("user_info") \
+                       .eq("streamlit_session", _st_session).execute()
+        if _row.data:
+            st.session_state.user_info = _row.data[0]["user_info"]
+    except Exception:
+        pass
 
 # ── Login gate ─────────────────────────────────────────────
 if "user_info" not in st.session_state:
@@ -189,8 +192,14 @@ if "user_info" not in st.session_state:
             user_info = _decode_id_token(id_token)
             st.session_state.user_info = user_info
             st.session_state.token = result["token"]
-            _cm.set("pg_user_info", json.dumps(user_info),
-                    expires_at=datetime.now() + timedelta(days=30))
+            if _st_session:
+                try:
+                    supabase.table("sessions").upsert({
+                        "streamlit_session": _st_session,
+                        "user_info": user_info,
+                    }).execute()
+                except Exception:
+                    pass
             st.rerun()
     st.stop()
 
@@ -200,14 +209,6 @@ user_id = user_info.get("email", "")
 user_name = (user_info.get("name") or "there").split()[0]
 user_picture = user_info.get("picture", "") or ""
 user_full_name = user_info.get("name") or ""
-
-# ── Supabase ───────────────────────────────────────────────
-@st.cache_resource
-def get_supabase():
-    from supabase import create_client
-    return create_client(os.getenv("SUPABASE_URL"), os.getenv("SUPABASE_KEY"))
-
-supabase = get_supabase()
 
 # ── Session state ──────────────────────────────────────────
 if "agent" not in st.session_state:
@@ -405,7 +406,12 @@ with st.sidebar:
         st.rerun()
 
     if st.button("🚪 Sign out"):
-        _cm.delete("pg_user_info")
+        if _st_session:
+            try:
+                supabase.table("sessions").delete() \
+                        .eq("streamlit_session", _st_session).execute()
+            except Exception:
+                pass
         st.session_state.pop("user_info", None)
         st.session_state.pop("token", None)
         st.rerun()
