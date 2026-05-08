@@ -4,6 +4,7 @@ import os
 import json
 import base64
 import re
+import uuid
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -148,6 +149,21 @@ def _decode_id_token(id_token: str) -> dict:
     payload += "=" * (4 - len(payload) % 4)
     return json.loads(base64.urlsafe_b64decode(payload))
 
+# ── Server-side session store (survives page refresh via URL param) ─────────
+@st.cache_resource
+def _session_store():
+    return {}
+
+_sessions = _session_store()
+
+# Restore session from ?sid= query param (present after login, survives refresh)
+_sid = st.query_params.get("sid", "")
+if _sid and "user_info" not in st.session_state:
+    _saved = _sessions.get(_sid)
+    if _saved:
+        st.session_state.user_info = _saved["user_info"]
+        st.session_state.token = _saved.get("token")
+
 # ── Login gate ─────────────────────────────────────────────
 if "user_info" not in st.session_state:
     st.title("🧞 PantryGenie")
@@ -165,8 +181,12 @@ if "user_info" not in st.session_state:
     if result and "token" in result:
         id_token = result["token"].get("id_token", "")
         if id_token:
-            st.session_state.user_info = _decode_id_token(id_token)
+            user_info = _decode_id_token(id_token)
+            st.session_state.user_info = user_info
             st.session_state.token = result["token"]
+            sid = str(uuid.uuid4())
+            _sessions[sid] = {"user_info": user_info, "token": result["token"]}
+            st.query_params["sid"] = sid
             st.rerun()
     st.stop()
 
@@ -381,6 +401,10 @@ with st.sidebar:
         st.rerun()
 
     if st.button("🚪 Sign out"):
+        sid = st.query_params.get("sid", "")
+        if sid:
+            _sessions.pop(sid, None)
+            st.query_params.clear()
         st.session_state.pop("user_info", None)
         st.session_state.pop("token", None)
         st.rerun()
