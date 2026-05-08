@@ -4,7 +4,7 @@ import os
 import json
 import base64
 import re
-import uuid
+from datetime import datetime, timedelta
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -149,27 +149,28 @@ def _decode_id_token(id_token: str) -> dict:
     payload += "=" * (4 - len(payload) % 4)
     return json.loads(base64.urlsafe_b64decode(payload))
 
-# ── Server-side session store (survives page refresh via cookie) ─────────────
+# ── Cookie-based session (survives page refresh and server restarts) ──────────
 from streamlit_cookies_controller import CookieController
 
-@st.cache_resource
-def _session_store():
-    return {}
-
-_sessions = _session_store()
 _cookie = CookieController(key="pg_cookie_ctrl")
 
-# Restore session from cookie (set at login, invisible in URL)
-if "user_info" not in st.session_state:
-    _sid = _cookie.get("pg_sid")
-    if _sid:
-        _saved = _sessions.get(_sid)
-        if _saved:
-            st.session_state.user_info = _saved["user_info"]
-            st.session_state.token = _saved.get("token")
+# "pg_cookie_ctrl" in session_state means the JS bridge has synced browser cookies.
+# On the very first render after a refresh it won't be there yet; the controller
+# triggers an automatic rerun once it is ready.
+if "user_info" not in st.session_state and "pg_cookie_ctrl" in st.session_state:
+    _raw = _cookie.get("pg_user_info")
+    if _raw:
+        try:
+            st.session_state.user_info = json.loads(_raw)
+        except Exception:
+            pass
 
 # ── Login gate ─────────────────────────────────────────────
 if "user_info" not in st.session_state:
+    # Cookie controller hasn't synced yet — wait for the automatic rerun.
+    if "pg_cookie_ctrl" not in st.session_state:
+        st.stop()
+
     st.title("🧞 PantryGenie")
     st.markdown('<p class="subtitle">Your personal vegetarian recipe assistant 🌱</p>', unsafe_allow_html=True)
     st.divider()
@@ -188,9 +189,8 @@ if "user_info" not in st.session_state:
             user_info = _decode_id_token(id_token)
             st.session_state.user_info = user_info
             st.session_state.token = result["token"]
-            sid = str(uuid.uuid4())
-            _sessions[sid] = {"user_info": user_info, "token": result["token"]}
-            _cookie.set("pg_sid", sid)
+            _cookie.set("pg_user_info", json.dumps(user_info),
+                        expires=datetime.now() + timedelta(days=30))
             st.rerun()
     st.stop()
 
@@ -405,10 +405,7 @@ with st.sidebar:
         st.rerun()
 
     if st.button("🚪 Sign out"):
-        _sid = _cookie.get("pg_sid")
-        if _sid:
-            _sessions.pop(_sid, None)
-        _cookie.remove("pg_sid")
+        _cookie.remove("pg_user_info")
         st.session_state.pop("user_info", None)
         st.session_state.pop("token", None)
         st.rerun()
