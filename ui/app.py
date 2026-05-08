@@ -261,19 +261,19 @@ with hcol_user:
         st.markdown(f'<div class="user-row"><span class="user-name">{user_name}</span></div>', unsafe_allow_html=True)
 
 # ── Tabs ──────────────────────────────────────────────────────
-tab_pantry, tab_recipes, tab_shop, tab_prefs = st.tabs(["🥕 Pantry", "🍽️ Recipes", "🛒 Shopping", "💛 Prefs"])
+tab_recipes, tab_shop, tab_prefs = st.tabs(["🍽️ Recipes", "🛒 Shopping", "💛 Prefs"])
 
 # ════════════════════════════════════════════════════════════
-# PANTRY TAB
+# RECIPES TAB  (pantry + suggestions + recipe output)
 # ════════════════════════════════════════════════════════════
-with tab_pantry:
+with tab_recipes:
     pantry_result = supabase.table("pantry").select("ingredients").eq("user_id", user_id).execute()
     ingredients = list(pantry_result.data[0]["ingredients"]) if pantry_result.data else []
 
-    # ── Quick-add suggestions (top of page) ──────────────────
+    # ── Quick-add suggestions ─────────────────────────────────
     suggestions = [s for s in st.session_state.pantry_suggestions if s not in ingredients]
     if suggestions:
-        st.markdown("**✨ Quick add to pantry**")
+        st.markdown("**✨ What's in your pantry?**")
         st.markdown('<div class="chip-row">', unsafe_allow_html=True)
         chip_cols = st.columns(3)
         for i, suggestion in enumerate(suggestions):
@@ -284,12 +284,15 @@ with tab_pantry:
                     st.session_state.pantry_suggestions = random.sample(COMMON_INGREDIENTS, 12)
                     st.rerun()
         st.markdown('</div>', unsafe_allow_html=True)
-        st.divider()
 
     # ── Add custom item ───────────────────────────────────────
     with st.form("pantry_add", clear_on_submit=True):
-        new_item = st.text_input("", placeholder="e.g. tofu, lentils", label_visibility="collapsed")
-        if st.form_submit_button("➕ Add to Pantry", use_container_width=True) and new_item.strip():
+        ci1, ci2 = st.columns([4, 1])
+        with ci1:
+            new_item = st.text_input("", placeholder="Type an ingredient...", label_visibility="collapsed")
+        with ci2:
+            add_clicked = st.form_submit_button("➕ Add", use_container_width=True)
+        if add_clicked and new_item.strip():
             new_items = [i.strip().lower() for i in new_item.split(",") if i.strip()]
             updated = list(dict.fromkeys(ingredients + new_items))
             supabase.table("pantry").upsert({"user_id": user_id, "ingredients": updated}).execute()
@@ -297,7 +300,7 @@ with tab_pantry:
 
     # ── Pantry items list ─────────────────────────────────────
     if ingredients:
-        st.caption(f"{len(ingredients)} item{'s' if len(ingredients) != 1 else ''} in your pantry")
+        st.caption(f"🥕 {len(ingredients)} item{'s' if len(ingredients) != 1 else ''} in your pantry")
         for idx, item in enumerate(ingredients):
             if st.session_state.editing_pantry == idx:
                 edit_key = f"edit_pantry_val_{idx}"
@@ -342,18 +345,13 @@ with tab_pantry:
                         updated = [x for j, x in enumerate(ingredients) if j != idx]
                         supabase.table("pantry").upsert({"user_id": user_id, "ingredients": updated}).execute()
                         st.rerun()
-    else:
-        st.info("Your pantry is empty — use Quick Add above or type an ingredient!")
 
-# ════════════════════════════════════════════════════════════
-# RECIPES TAB
-# ════════════════════════════════════════════════════════════
-with tab_recipes:
+    # ── Recipe suggestion ─────────────────────────────────────
+    st.divider()
     special_request = st.text_input(
         "Any special request?",
         placeholder="e.g. quick meal, Italian tonight, high protein...",
     )
-
     suggest_clicked = st.button("✨ Suggest Recipes", use_container_width=True, type="primary")
 
     if suggest_clicked:
@@ -376,14 +374,11 @@ with tab_recipes:
         if st.button("🔄 Clear & start over", use_container_width=True):
             st.session_state.pop("last_recipes", None)
             st.rerun()
-    else:
+    elif not ingredients:
         st.markdown("""
         <div class="empty-state">
             <p style="font-size:2.8em; margin-bottom:8px;">🥗</p>
-            <p style="font-size:1em;">
-                Add ingredients in the <b>Pantry</b> tab,<br>
-                then hit <b>Suggest Recipes</b>!
-            </p>
+            <p style="font-size:1em;">Tap an ingredient above to get started!</p>
         </div>
         """, unsafe_allow_html=True)
 
