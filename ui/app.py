@@ -4,6 +4,7 @@ import os
 import json
 import base64
 import re
+import random
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -18,6 +19,18 @@ except:
     pass
 
 from pantry_genie.agent import build_agent, chat
+
+COMMON_INGREDIENTS = [
+    "olive oil", "garlic", "onion", "tomatoes", "potatoes", "carrots",
+    "spinach", "chickpeas", "lentils", "black beans", "kidney beans",
+    "tofu", "tempeh", "paneer", "eggs", "butter", "milk", "yogurt",
+    "rice", "pasta", "bread", "oats", "flour", "quinoa",
+    "bell peppers", "mushrooms", "zucchini", "broccoli", "cauliflower",
+    "cucumber", "celery", "corn", "peas", "sweet potato", "eggplant",
+    "coconut milk", "vegetable broth", "soy sauce", "cumin", "turmeric",
+    "paprika", "chili flakes", "ginger", "coriander", "basil", "oregano",
+    "lemon", "lime", "walnuts", "almonds", "cashews", "sunflower seeds",
+]
 
 # ── Config ─────────────────────────────────────────────────
 st.set_page_config(
@@ -264,26 +277,70 @@ with st.sidebar:
             supabase.table("pantry").upsert({"user_id": user_id, "ingredients": updated}).execute()
             st.rerun()
 
+    # ── Quick-add suggestions ───────────────────────────────
+    if "pantry_suggestions" not in st.session_state:
+        st.session_state.pantry_suggestions = random.sample(COMMON_INGREDIENTS, 12)
+
+    suggestions = [s for s in st.session_state.pantry_suggestions if s not in ingredients]
+    if suggestions:
+        st.caption("✨ Quick add")
+        cols = st.columns(2)
+        for i, suggestion in enumerate(suggestions):
+            with cols[i % 2]:
+                if st.button(suggestion.capitalize(), key=f"suggest_{suggestion}", use_container_width=True):
+                    updated = list(dict.fromkeys(ingredients + [suggestion]))
+                    supabase.table("pantry").upsert({"user_id": user_id, "ingredients": updated}).execute()
+                    st.session_state.pantry_suggestions = random.sample(COMMON_INGREDIENTS, 12)
+                    st.rerun()
+
+    if "editing_pantry" not in st.session_state:
+        st.session_state.editing_pantry = None
+
     if ingredients:
         for idx, item in enumerate(ingredients):
-            c1, c2, c3 = st.columns([4, 1, 1])
-            with c1:
-                st.markdown(f"• {item.strip().capitalize()}")
-            with c2:
-                if st.button("🛒", key=f"shop_pantry_{idx}", help="Move to shopping list"):
-                    updated_pantry = [x for j, x in enumerate(ingredients) if j != idx]
-                    supabase.table("pantry").upsert({"user_id": user_id, "ingredients": updated_pantry}).execute()
-                    shop_res = supabase.table("shopping_list").select("items").eq("user_id", user_id).execute()
-                    shop_items = list(shop_res.data[0]["items"]) if shop_res.data else []
-                    if item.strip().lower() not in shop_items:
-                        shop_items.append(item.strip().lower())
-                    supabase.table("shopping_list").upsert({"user_id": user_id, "items": shop_items}).execute()
-                    st.rerun()
-            with c3:
-                if st.button("✕", key=f"del_pantry_{idx}"):
-                    updated = [x for j, x in enumerate(ingredients) if j != idx]
-                    supabase.table("pantry").upsert({"user_id": user_id, "ingredients": updated}).execute()
-                    st.rerun()
+            if st.session_state.editing_pantry == idx:
+                edit_key = f"edit_pantry_val_{idx}"
+                if edit_key not in st.session_state:
+                    st.session_state[edit_key] = item
+                c1, c2, c3 = st.columns([4, 1, 1])
+                with c1:
+                    st.text_input("", key=edit_key, label_visibility="collapsed")
+                with c2:
+                    if st.button("✓", key=f"save_pantry_{idx}"):
+                        new_val = st.session_state[edit_key].strip().lower()
+                        if new_val:
+                            updated = [new_val if j == idx else x for j, x in enumerate(ingredients)]
+                            supabase.table("pantry").upsert({"user_id": user_id, "ingredients": updated}).execute()
+                        st.session_state.editing_pantry = None
+                        st.rerun()
+                with c3:
+                    if st.button("✕", key=f"cancel_pantry_{idx}"):
+                        st.session_state.editing_pantry = None
+                        st.rerun()
+            else:
+                c1, c2, c3, c4 = st.columns([3, 1, 1, 1])
+                with c1:
+                    st.markdown(f"• {item.strip().capitalize()}")
+                with c2:
+                    if st.button("✏️", key=f"edit_pantry_{idx}"):
+                        st.session_state.editing_pantry = idx
+                        st.session_state[f"edit_pantry_val_{idx}"] = item
+                        st.rerun()
+                with c3:
+                    if st.button("🛒", key=f"shop_pantry_{idx}", help="Move to shopping list"):
+                        updated_pantry = [x for j, x in enumerate(ingredients) if j != idx]
+                        supabase.table("pantry").upsert({"user_id": user_id, "ingredients": updated_pantry}).execute()
+                        shop_res = supabase.table("shopping_list").select("items").eq("user_id", user_id).execute()
+                        shop_items = list(shop_res.data[0]["items"]) if shop_res.data else []
+                        if item.strip().lower() not in shop_items:
+                            shop_items.append(item.strip().lower())
+                        supabase.table("shopping_list").upsert({"user_id": user_id, "items": shop_items}).execute()
+                        st.rerun()
+                with c4:
+                    if st.button("✕", key=f"del_pantry_{idx}"):
+                        updated = [x for j, x in enumerate(ingredients) if j != idx]
+                        supabase.table("pantry").upsert({"user_id": user_id, "ingredients": updated}).execute()
+                        st.rerun()
     else:
         st.info("Pantry is empty.")
 
@@ -351,26 +408,54 @@ with st.sidebar:
             supabase.table("shopping_list").upsert({"user_id": user_id, "items": updated_shop}).execute()
             st.rerun()
 
+    if "editing_shop" not in st.session_state:
+        st.session_state.editing_shop = None
+
     if shop_items:
         for idx, item in enumerate(shop_items):
-            c1, c2, c3 = st.columns([4, 1, 1])
-            with c1:
-                st.markdown(f"• {item.strip().capitalize()}")
-            with c2:
-                if st.button("✓", key=f"bought_{idx}", help="Purchased — move to pantry"):
-                    updated_shop = [x for j, x in enumerate(shop_items) if j != idx]
-                    supabase.table("shopping_list").upsert({"user_id": user_id, "items": updated_shop}).execute()
-                    pantry_res = supabase.table("pantry").select("ingredients").eq("user_id", user_id).execute()
-                    pantry_items = list(pantry_res.data[0]["ingredients"]) if pantry_res.data else []
-                    if item.strip().lower() not in pantry_items:
-                        pantry_items.append(item.strip().lower())
-                    supabase.table("pantry").upsert({"user_id": user_id, "ingredients": pantry_items}).execute()
-                    st.rerun()
-            with c3:
-                if st.button("✕", key=f"del_shop_{idx}"):
-                    updated_shop = [x for j, x in enumerate(shop_items) if j != idx]
-                    supabase.table("shopping_list").upsert({"user_id": user_id, "items": updated_shop}).execute()
-                    st.rerun()
+            if st.session_state.editing_shop == idx:
+                edit_key = f"edit_shop_val_{idx}"
+                if edit_key not in st.session_state:
+                    st.session_state[edit_key] = item
+                c1, c2, c3 = st.columns([4, 1, 1])
+                with c1:
+                    st.text_input("", key=edit_key, label_visibility="collapsed")
+                with c2:
+                    if st.button("✓", key=f"save_shop_{idx}"):
+                        new_val = st.session_state[edit_key].strip().lower()
+                        if new_val:
+                            updated_shop = [new_val if j == idx else x for j, x in enumerate(shop_items)]
+                            supabase.table("shopping_list").upsert({"user_id": user_id, "items": updated_shop}).execute()
+                        st.session_state.editing_shop = None
+                        st.rerun()
+                with c3:
+                    if st.button("✕", key=f"cancel_shop_{idx}"):
+                        st.session_state.editing_shop = None
+                        st.rerun()
+            else:
+                c1, c2, c3, c4 = st.columns([3, 1, 1, 1])
+                with c1:
+                    st.markdown(f"• {item.strip().capitalize()}")
+                with c2:
+                    if st.button("✏️", key=f"edit_shop_{idx}"):
+                        st.session_state.editing_shop = idx
+                        st.session_state[f"edit_shop_val_{idx}"] = item
+                        st.rerun()
+                with c3:
+                    if st.button("✓", key=f"bought_{idx}", help="Purchased — move to pantry"):
+                        updated_shop = [x for j, x in enumerate(shop_items) if j != idx]
+                        supabase.table("shopping_list").upsert({"user_id": user_id, "items": updated_shop}).execute()
+                        pantry_res = supabase.table("pantry").select("ingredients").eq("user_id", user_id).execute()
+                        pantry_items = list(pantry_res.data[0]["ingredients"]) if pantry_res.data else []
+                        if item.strip().lower() not in pantry_items:
+                            pantry_items.append(item.strip().lower())
+                        supabase.table("pantry").upsert({"user_id": user_id, "ingredients": pantry_items}).execute()
+                        st.rerun()
+                with c4:
+                    if st.button("✕", key=f"del_shop_{idx}"):
+                        updated_shop = [x for j, x in enumerate(shop_items) if j != idx]
+                        supabase.table("shopping_list").upsert({"user_id": user_id, "items": updated_shop}).execute()
+                        st.rerun()
     else:
         st.info("Shopping list is empty.")
 
