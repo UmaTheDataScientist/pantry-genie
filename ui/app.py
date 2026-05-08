@@ -171,28 +171,34 @@ if "user_info" not in st.session_state:
     if "pg_cookie_ctrl" not in st.session_state:
         st.stop()
 
-    st.title("🧞 PantryGenie")
-    st.markdown('<p class="subtitle">Your personal vegetarian recipe assistant 🌱</p>', unsafe_allow_html=True)
-    st.divider()
-    _, col, _ = st.columns([1, 2, 1])
-    with col:
-        result = oauth2.authorize_button(
-            name="Sign in with Google",
-            redirect_uri=_secret("REDIRECT_URI") or "https://pantry-genie.streamlit.app",
-            scope="openid email profile",
-            key="google_login",
-            use_container_width=True,
-        )
+    _login_area = st.empty()
+    with _login_area.container():
+        st.title("🧞 PantryGenie")
+        st.markdown('<p class="subtitle">Your personal vegetarian recipe assistant 🌱</p>', unsafe_allow_html=True)
+        st.divider()
+        _, col, _ = st.columns([1, 2, 1])
+        with col:
+            result = oauth2.authorize_button(
+                name="Sign in with Google",
+                redirect_uri=_secret("REDIRECT_URI") or "https://pantry-genie.streamlit.app",
+                scope="openid email profile",
+                key="google_login",
+                use_container_width=True,
+            )
     if result and "token" in result:
         id_token = result["token"].get("id_token", "")
         if id_token:
             user_info = _decode_id_token(id_token)
             st.session_state.user_info = user_info
             st.session_state.token = result["token"]
+            # Set cookie WITHOUT st.rerun() so the JS command reaches the browser.
+            # Clearing the login area and falling through renders the main app directly.
             _cookie.set("pg_user_info", json.dumps(user_info),
                         expires=datetime.now() + timedelta(days=30))
-            st.rerun()
-    st.stop()
+            _login_area.empty()
+
+    if "user_info" not in st.session_state:
+        st.stop()
 
 # ── User identity ──────────────────────────────────────────
 user_info = st.session_state.user_info
