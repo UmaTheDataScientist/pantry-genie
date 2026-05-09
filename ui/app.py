@@ -104,6 +104,24 @@ st.markdown("""
         border-color: #4caf50 !important;
     }
 
+    /* ── Pantry item rows (text looks like a list, not a button) ── */
+    .pantry-item div[data-testid="stButton"] > button {
+        background: none !important;
+        border: none !important;
+        box-shadow: none !important;
+        text-align: left !important;
+        color: inherit !important;
+        font-size: 0.95em !important;
+        min-height: 28px !important;
+        padding: 2px 4px !important;
+        cursor: pointer !important;
+        width: 100% !important;
+    }
+    .pantry-item div[data-testid="stButton"] > button:hover {
+        background-color: #f0f7f0 !important;
+        border-radius: 6px !important;
+    }
+
     /* ── Recipe cards ────────────────────────── */
     .recipe-card {
         background: #f7faf7;
@@ -241,6 +259,9 @@ if "agent" not in st.session_state:
     with st.spinner("🧞 Waking up PantryGenie..."):
         st.session_state.agent = build_agent()
 
+if "editing_pantry" not in st.session_state:
+    st.session_state.editing_pantry = None
+
 if "pantry_suggestions" not in st.session_state:
     st.session_state.pantry_suggestions = random.sample(COMMON_INGREDIENTS, 6)
 
@@ -280,7 +301,7 @@ with tab_recipes:
             st.markdown('<div class="chip-row">', unsafe_allow_html=True)
             chip_cols = st.columns(3)
             for i, suggestion in enumerate(suggestions):
-                with chip_cols[i % 2]:
+                with chip_cols[i % 3]:
                     if st.button(suggestion.capitalize(), key=f"suggest_{suggestion}", use_container_width=True):
                         updated = list(dict.fromkeys(ingredients + [suggestion]))
                         supabase.table("pantry").upsert({"user_id": user_id, "ingredients": updated}).execute()
@@ -288,24 +309,43 @@ with tab_recipes:
                         st.rerun()
             st.markdown('</div>', unsafe_allow_html=True)
 
-        # Inline-editable pantry list
-        pantry_df = pd.DataFrame({"Ingredient": ingredients})
-        edited_pantry = st.data_editor(
-            pantry_df,
-            column_config={"Ingredient": st.column_config.TextColumn("Ingredient", width="large")},
-            hide_index=True,
-            use_container_width=True,
-            num_rows="dynamic",
-            key="pantry_editor",
-        )
-        new_ingredients = [
-            str(x).strip().lower()
-            for x in edited_pantry["Ingredient"].tolist()
-            if x is not None and not pd.isna(x) and str(x).strip()
-        ]
-        if new_ingredients != ingredients:
-            supabase.table("pantry").upsert({"user_id": user_id, "ingredients": new_ingredients}).execute()
-            st.rerun()
+        # Clean list — click item text to edit, ✕ to delete
+        if ingredients:
+            st.caption(f"{len(ingredients)} item{'s' if len(ingredients) != 1 else ''}")
+        for idx, item in enumerate(ingredients):
+            if st.session_state.editing_pantry == idx:
+                edit_key = f"edit_pantry_val_{idx}"
+                if edit_key not in st.session_state:
+                    st.session_state[edit_key] = item
+                ec1, ec2, ec3 = st.columns([5, 1, 1])
+                with ec1:
+                    st.text_input("", key=edit_key, label_visibility="collapsed")
+                with ec2:
+                    if st.button("✓", key=f"save_pantry_{idx}"):
+                        new_val = st.session_state[edit_key].strip().lower()
+                        if new_val:
+                            updated = [new_val if j == idx else x for j, x in enumerate(ingredients)]
+                            supabase.table("pantry").upsert({"user_id": user_id, "ingredients": updated}).execute()
+                        st.session_state.editing_pantry = None
+                        st.rerun()
+                with ec3:
+                    if st.button("✕", key=f"cancel_pantry_{idx}"):
+                        st.session_state.editing_pantry = None
+                        st.rerun()
+            else:
+                ic1, ic2 = st.columns([6, 1])
+                with ic1:
+                    st.markdown('<div class="pantry-item">', unsafe_allow_html=True)
+                    if st.button(f"• {item.capitalize()}", key=f"pantry_item_{idx}", use_container_width=True):
+                        st.session_state.editing_pantry = idx
+                        st.session_state[f"edit_pantry_val_{idx}"] = item
+                        st.rerun()
+                    st.markdown('</div>', unsafe_allow_html=True)
+                with ic2:
+                    if st.button("✕", key=f"del_pantry_{idx}"):
+                        updated = [x for j, x in enumerate(ingredients) if j != idx]
+                        supabase.table("pantry").upsert({"user_id": user_id, "ingredients": updated}).execute()
+                        st.rerun()
 
     # ── RIGHT: recipe panel ───────────────────────────────────
     with col_recipes:
