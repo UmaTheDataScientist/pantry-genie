@@ -4,7 +4,6 @@ import os
 import json
 import base64
 import re
-import random
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -20,185 +19,164 @@ except:
 
 from pantry_genie.agent import build_agent, chat
 
-COMMON_INGREDIENTS = [
-    "olive oil", "garlic", "onion", "tomatoes", "potatoes", "carrots",
-    "spinach", "chickpeas", "lentils", "black beans", "kidney beans",
-    "tofu", "tempeh", "paneer", "eggs", "butter", "milk", "yogurt",
-    "rice", "pasta", "bread", "oats", "flour", "quinoa",
-    "bell peppers", "mushrooms", "zucchini", "broccoli", "cauliflower",
-    "cucumber", "celery", "corn", "peas", "sweet potato", "eggplant",
-    "coconut milk", "vegetable broth", "soy sauce", "cumin", "turmeric",
-    "paprika", "chili flakes", "ginger", "coriander", "basil", "oregano",
-    "lemon", "lime", "walnuts", "almonds", "cashews", "sunflower seeds",
+# ── Constants ──────────────────────────────────────────────────────────────
+PANTRY_OPTIONS = [
+    "Olive oil", "Garlic", "Onion", "Tomatoes", "Rice", "Pasta",
+    "Chickpeas", "Lentils", "Tofu", "Spinach", "Potatoes", "Carrots",
+    "Bell peppers", "Mushrooms", "Broccoli", "Eggs",
+    "Coconut milk", "Soy sauce", "Black beans", "Sweet potato",
+    "Tempeh", "Paneer", "Butter", "Yogurt", "Quinoa", "Oats",
+    "Cauliflower", "Zucchini", "Eggplant", "Kidney beans",
+    "Vegetable broth", "Ginger", "Lemon", "Cumin", "Turmeric",
+    "Walnuts", "Almonds", "Corn", "Peas",
 ]
 
-# ── Config ──────────────────────────────────────────────────
+CUISINE_OPTIONS = [
+    "Italian", "Indian", "Mexican", "Chinese", "Thai", "Japanese",
+    "Mediterranean", "American", "Korean", "Vietnamese",
+    "Greek", "Middle Eastern", "French", "Spanish", "Lebanese", "Ethiopian",
+]
+
+EQUIPMENT_OPTIONS = [
+    "Stovetop", "Oven", "Instant Pot", "Air Fryer", "Microwave",
+    "Blender", "Wok", "Slow Cooker", "Rice Cooker", "Grill / BBQ",
+    "Food Processor", "Steamer", "Cast Iron Pan", "Stand Mixer",
+]
+
+WIZARD = [
+    {
+        "screen": "wizard_0",
+        "emoji": "🥕",
+        "title": "What's in your pantry?",
+        "hint": "Tap to add — tap again to remove",
+        "options": PANTRY_OPTIONS,
+        "key": "ingredients",
+        "placeholder": "Add custom ingredient...",
+    },
+    {
+        "screen": "wizard_1",
+        "emoji": "🍜",
+        "title": "What cuisines do you love?",
+        "hint": "Pick all that sound delicious",
+        "options": CUISINE_OPTIONS,
+        "key": "cuisines",
+        "placeholder": "Add another cuisine...",
+    },
+    {
+        "screen": "wizard_2",
+        "emoji": "🍳",
+        "title": "What equipment do you have?",
+        "hint": "We'll tailor recipes to what you own",
+        "options": EQUIPMENT_OPTIONS,
+        "key": "equipment",
+        "placeholder": "Add other equipment...",
+    },
+]
+
+# ── Page config ─────────────────────────────────────────────────────────────
 st.set_page_config(
     page_title="PantryGenie 🧞",
     page_icon="🧞",
     layout="centered",
-    initial_sidebar_state="collapsed",
+    initial_sidebar_state="auto",
 )
 
+# ── CSS ─────────────────────────────────────────────────────────────────────
 st.markdown("""
 <style>
-    /* ── Base layout ─────────────────────────── */
+  /* ── Layout ── */
+  .block-container {
+    padding-top: 0.75rem !important;
+    padding-left: 0.75rem !important;
+    padding-right: 0.75rem !important;
+    max-width: 640px !important;
+  }
+
+  /* ── Mobile ── */
+  @media (max-width: 640px) {
     .block-container {
-        padding-top: 1rem !important;
-        padding-left: 1rem !important;
-        padding-right: 1rem !important;
-        max-width: 680px !important;
+      padding-left: 0.4rem !important;
+      padding-right: 0.4rem !important;
     }
+    /* Prevent iOS zoom on input focus */
+    input, textarea, select { font-size: 16px !important; }
+    button[data-baseweb="tab"] { font-size: 0.75rem !important; padding: 5px 5px !important; }
+  }
 
-    /* ── Mobile overrides ────────────────────── */
-    @media (max-width: 640px) {
-        .block-container {
-            padding-left: 0.5rem !important;
-            padding-right: 0.5rem !important;
-            padding-top: 0.5rem !important;
-        }
-        h1 { font-size: 1.4rem !important; }
-        h2 { font-size: 1.2rem !important; }
-        h3 { font-size: 1.05rem !important; }
-        button[data-baseweb="tab"] {
-            font-size: 0.78rem !important;
-            padding: 6px 6px !important;
-        }
-    }
+  /* ── All buttons: 44px minimum tap target ── */
+  div[data-testid="stButton"] > button {
+    min-height: 44px !important;
+    border-radius: 10px !important;
+    font-size: 0.88rem !important;
+    font-weight: 500 !important;
+  }
 
-    /* ── Typography ──────────────────────────── */
-    h1 { text-align: center; }
-    .subtitle {
-        text-align: center;
-        color: #888;
-        font-size: 0.9em;
-        margin-top: -12px;
-        margin-bottom: 16px;
-    }
-    .empty-state {
-        text-align: center;
-        color: #bbb;
-        margin-top: 32px;
-        margin-bottom: 32px;
-    }
+  /* ── Inputs ── */
+  div[data-testid="stTextInput"] input {
+    min-height: 44px !important;
+    font-size: 16px !important;
+    border-radius: 10px !important;
+  }
 
-    /* ── Tap targets: minimum 44 px (Apple HIG) ── */
-    div[data-testid="stButton"] > button {
-        min-height: 44px !important;
-        border-radius: 8px !important;
-    }
+  /* ── Reduce column gap ── */
+  div[data-testid="stHorizontalBlock"] { gap: 5px !important; }
 
-    /* ── Inputs: 16px prevents iOS zoom on focus ── */
-    div[data-testid="stTextInput"] input,
-    div[data-testid="stTextArea"] textarea {
-        font-size: 16px !important;
-        min-height: 44px !important;
-    }
+  /* ── Wizard step header ── */
+  .step-hdr {
+    text-align: center;
+    padding: 0.25rem 0 0.6rem;
+  }
+  .step-hdr .big-emoji { font-size: 2.6rem; display: block; margin-bottom: 4px; }
+  .step-hdr h2 { font-size: 1.3rem !important; font-weight: 700; margin: 2px 0; }
+  .step-hdr .hint { font-size: 0.82rem; color: #888; margin: 0; }
 
-    /* ── Pill chips for ingredient suggestions ── */
-    .chip-row div[data-testid="stButton"] > button {
-        border-radius: 999px !important;
-        background-color: #f0f7f0 !important;
-        border: 1px solid #b5d9b5 !important;
-        color: #2e7d32 !important;
-        font-size: 0.80em !important;
-        min-height: 40px !important;
-        padding: 0 8px !important;
-        transition: background-color 0.15s;
-        white-space: nowrap;
-        overflow: hidden;
-        text-overflow: ellipsis;
-    }
-    .chip-row div[data-testid="stButton"] > button:hover {
-        background-color: #d4edda !important;
-        border-color: #4caf50 !important;
-    }
+  /* ── Progress dots ── */
+  .prog-dots { display: flex; justify-content: center; gap: 8px; margin-bottom: 12px; }
+  .pdot { width: 9px; height: 9px; border-radius: 50%; background: #ddd; display: inline-block; }
+  .pdot.done { background: #a5d6a7; }
+  .pdot.active { background: #2e7d32; width: 22px; border-radius: 5px; }
 
-    /* ── Item action buttons (emoji-only) ── */
-    .action-btn div[data-testid="stButton"] > button {
-        min-width: 44px !important;
-        min-height: 44px !important;
-        padding: 0 4px !important;
-        font-size: 1rem !important;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-    }
+  /* ── Count badge on chips ── */
+  .sel-badge {
+    display: inline-block;
+    background: #e8f5e9;
+    color: #2e7d32;
+    border-radius: 20px;
+    padding: 1px 10px;
+    font-size: 0.78rem;
+    font-weight: 600;
+    margin-left: 6px;
+  }
 
-    /* ── Recipe cards ────────────────────────── */
-    .recipe-card {
-        background: #f7faf7;
-        border-radius: 14px;
-        padding: 16px 16px 12px;
-        border: 1px solid #cfe8cf;
-        margin-bottom: 14px;
-    }
+  /* ── Sidebar ── */
+  section[data-testid="stSidebar"] .block-container {
+    padding: 0.5rem 0.6rem !important;
+    max-width: none !important;
+  }
+  section[data-testid="stSidebar"] div[data-testid="stButton"] > button {
+    min-height: 32px !important;
+    font-size: 0.78rem !important;
+    padding: 0 8px !important;
+    border-radius: 6px !important;
+  }
+  .sb-item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 2px 0;
+    font-size: 0.85rem;
+  }
 
-    /* ── User header row ─────────────────────── */
-    .user-row {
-        display: flex;
-        align-items: center;
-        justify-content: flex-end;
-        gap: 8px;
-        margin-bottom: 4px;
-    }
-    .user-row img {
-        border-radius: 50%;
-        width: 30px;
-        height: 30px;
-    }
-    .user-name {
-        font-size: 0.85em;
-        color: #555;
-    }
-
-    /* ── Remove column gap blowout on narrow screens ── */
-    div[data-testid="stHorizontalBlock"] {
-        gap: 4px !important;
-    }
+  /* ── Recipe screen ── */
+  .recipe-welcome {
+    text-align: center;
+    padding: 0.5rem 0 1rem;
+  }
+  .empty-state { text-align: center; color: #bbb; padding: 28px 0; }
 </style>
 """, unsafe_allow_html=True)
 
-
-def _extract_field(text: str, label: str) -> str:
-    m = re.search(rf'\*\*{label}:\*\*\s*(.+?)(?=\n\*\*|\Z)', text, re.DOTALL)
-    return m.group(1).strip() if m else ""
-
-
-def _render_recipe_cards(text: str):
-    sections = re.split(r'\n?---\n?', text)
-    rendered = 0
-    for section in sections:
-        section = section.strip()
-        if not section or '##' not in section:
-            continue
-        name_m = re.search(r'##\s+(.+)', section)
-        name = name_m.group(1).strip() if name_m else "Recipe"
-        ingredients = _extract_field(section, 'Ingredients')
-        directions = _extract_field(section, 'Directions')
-        cook_time = _extract_field(section, 'Cook time')
-        watch = _extract_field(section, 'Watch')
-
-        with st.container(border=True):
-            st.markdown(f"### {name}")
-            if ingredients:
-                st.markdown(f"**Ingredients:** {ingredients}")
-            if directions:
-                st.markdown(f"**Directions:** {directions}")
-            col_time, col_watch = st.columns([1, 2])
-            with col_time:
-                if cook_time:
-                    st.markdown(f"**Cook time:** {cook_time}")
-            with col_watch:
-                if watch:
-                    st.markdown(f"**Watch:** {watch}")
-        rendered += 1
-
-    if not rendered:
-        st.markdown(text)
-
-
-# ── OAuth setup ─────────────────────────────────────────────
+# ── OAuth setup ──────────────────────────────────────────────────────────────
 from streamlit_oauth import OAuth2Component
 
 def _secret(key):
@@ -220,16 +198,24 @@ oauth2 = OAuth2Component(
     refresh_token_endpoint="https://oauth2.googleapis.com/token",
 )
 
-def _decode_id_token(id_token: str) -> dict:
-    payload = id_token.split(".")[1]
-    payload += "=" * (4 - len(payload) % 4)
-    return json.loads(base64.urlsafe_b64decode(payload))
+def _decode_id_token(t: str) -> dict:
+    p = t.split(".")[1]
+    p += "=" * (4 - len(p) % 4)
+    return json.loads(base64.urlsafe_b64decode(p))
 
-# ── Login gate ──────────────────────────────────────────────
+# ── Login gate ───────────────────────────────────────────────────────────────
 if "user_info" not in st.session_state:
-    st.title("🧞 PantryGenie")
-    st.markdown('<p class="subtitle">Your personal vegetarian recipe assistant 🌱</p>', unsafe_allow_html=True)
-    st.divider()
+    st.markdown(
+        '<div style="text-align:center;padding-top:3rem">'
+        '<span style="font-size:3.5rem">🧞</span></div>',
+        unsafe_allow_html=True,
+    )
+    st.markdown('<h1 style="text-align:center;margin-top:0">PantryGenie</h1>', unsafe_allow_html=True)
+    st.markdown(
+        '<p style="text-align:center;color:#888;margin-bottom:2.5rem">'
+        'Your personal vegetarian recipe assistant 🌱</p>',
+        unsafe_allow_html=True,
+    )
     _, col, _ = st.columns([1, 4, 1])
     with col:
         result = oauth2.authorize_button(
@@ -240,21 +226,21 @@ if "user_info" not in st.session_state:
             use_container_width=True,
         )
     if result and "token" in result:
-        id_token = result["token"].get("id_token", "")
-        if id_token:
-            st.session_state.user_info = _decode_id_token(id_token)
+        tok = result["token"].get("id_token", "")
+        if tok:
+            st.session_state.user_info = _decode_id_token(tok)
             st.session_state.token = result["token"]
             st.rerun()
     st.stop()
 
-# ── User identity ────────────────────────────────────────────
+# ── Identity ─────────────────────────────────────────────────────────────────
 user_info = st.session_state.user_info
 user_id = user_info.get("email", "")
 user_name = (user_info.get("name") or "there").split()[0]
 user_picture = user_info.get("picture", "") or ""
 user_full_name = user_info.get("name") or ""
 
-# ── Supabase ─────────────────────────────────────────────────
+# ── Supabase ──────────────────────────────────────────────────────────────────
 @st.cache_resource
 def get_supabase():
     from supabase import create_client
@@ -262,138 +248,339 @@ def get_supabase():
 
 supabase = get_supabase()
 
-# ── Session state ─────────────────────────────────────────────
+# ── Load data once per session ────────────────────────────────────────────────
+if "data_loaded" not in st.session_state:
+    _p = supabase.table("pantry").select("ingredients").eq("user_id", user_id).execute()
+    _pr = supabase.table("preferences").select("*").eq("user_id", user_id).execute()
+    _s = supabase.table("shopping_list").select("items").eq("user_id", user_id).execute()
+    _pd = _pr.data[0] if _pr.data else {}
+    st.session_state.ingredients = list(_p.data[0]["ingredients"]) if _p.data else []
+    st.session_state.cuisines = _pd.get("favorite_cuisines") or []
+    st.session_state.equipment = _pd.get("equipment") or []
+    st.session_state.spice_level = _pd.get("spice_level") or ""
+    st.session_state.dislikes = _pd.get("dislikes") or []
+    st.session_state.shop_items = list(_s.data[0]["items"]) if _s.data else []
+    st.session_state.data_loaded = True
+
+# ── Build agent ───────────────────────────────────────────────────────────────
 if "agent" not in st.session_state:
-    with st.spinner("🧞 Waking up PantryGenie..."):
+    with st.spinner("🧞 Waking up..."):
         st.session_state.agent = build_agent()
 
-if "editing_pantry" not in st.session_state:
-    st.session_state.editing_pantry = None
-if "editing_shop" not in st.session_state:
-    st.session_state.editing_shop = None
-if "pantry_suggestions" not in st.session_state:
-    st.session_state.pantry_suggestions = random.sample(COMMON_INGREDIENTS, 9)
+# ── Initial screen ────────────────────────────────────────────────────────────
+if "screen" not in st.session_state:
+    has_setup = bool(
+        st.session_state.ingredients
+        or st.session_state.cuisines
+        or st.session_state.equipment
+    )
+    st.session_state.screen = "recipes" if has_setup else "wizard_0"
 
-# ── Header ───────────────────────────────────────────────────
-hcol_title, hcol_user = st.columns([3, 1])
-with hcol_title:
-    st.markdown("## 🧞 PantryGenie")
-with hcol_user:
-    if user_picture:
-        st.markdown(
-            f'<div class="user-row"><img src="{user_picture}" />'
-            f'<span class="user-name">{user_name}</span></div>',
-            unsafe_allow_html=True,
-        )
+# ── Supabase write helpers ─────────────────────────────────────────────────────
+def _save_pantry():
+    supabase.table("pantry").upsert(
+        {"user_id": user_id, "ingredients": st.session_state.ingredients}
+    ).execute()
+
+def _save_prefs():
+    payload = {
+        "user_id": user_id,
+        "favorite_cuisines": st.session_state.cuisines,
+        "spice_level": st.session_state.spice_level,
+        "dislikes": st.session_state.dislikes,
+    }
+    try:
+        payload["equipment"] = st.session_state.equipment
+        supabase.table("preferences").upsert(payload).execute()
+    except Exception:
+        payload.pop("equipment", None)
+        supabase.table("preferences").upsert(payload).execute()
+
+def _save_shop():
+    supabase.table("shopping_list").upsert(
+        {"user_id": user_id, "items": st.session_state.shop_items}
+    ).execute()
+
+def _toggle(state_key: str, value: str, save_fn):
+    low = value.lower()
+    current = st.session_state[state_key]
+    lows = [x.lower() for x in current]
+    if low in lows:
+        st.session_state[state_key] = [x for x in current if x.lower() != low]
     else:
-        st.markdown(f'<div class="user-row"><span class="user-name">{user_name}</span></div>', unsafe_allow_html=True)
+        st.session_state[state_key] = current + [value.lower()]
+    save_fn()
 
-# ── Tabs ──────────────────────────────────────────────────────
-tab_recipes, tab_shop, tab_prefs = st.tabs(["🍽️ Recipes", "🛒 Shopping", "💛 Prefs"])
-
-# ════════════════════════════════════════════════════════════
-# RECIPES TAB  —  pantry panel left, recipes right
-# ════════════════════════════════════════════════════════════
-with tab_recipes:
-    pantry_result = supabase.table("pantry").select("ingredients").eq("user_id", user_id).execute()
-    ingredients = list(pantry_result.data[0]["ingredients"]) if pantry_result.data else []
-
-    # ── Pantry panel (collapsible) ────────────────────────────
-    pantry_label = f"🥕 Your Pantry  ·  {len(ingredients)} item{'s' if len(ingredients) != 1 else ''}" if ingredients else "🥕 Your Pantry  ·  empty"
-    with st.expander(pantry_label, expanded=True):
-
-        # Quick-add chips
-        suggestions = [s for s in st.session_state.pantry_suggestions if s not in ingredients]
-        if suggestions:
-            st.markdown('<div class="chip-row">', unsafe_allow_html=True)
-            chip_cols = st.columns(3)
-            for i, suggestion in enumerate(suggestions):
-                with chip_cols[i % 3]:
-                    if st.button(suggestion.capitalize(), key=f"suggest_{suggestion}", use_container_width=True):
-                        updated = list(dict.fromkeys(ingredients + [suggestion]))
-                        supabase.table("pantry").upsert({"user_id": user_id, "ingredients": updated}).execute()
-                        st.session_state.pantry_suggestions = random.sample(COMMON_INGREDIENTS, 9)
-                        st.rerun()
-            st.markdown('</div>', unsafe_allow_html=True)
-
-        # Custom add
-        with st.form("pantry_add", clear_on_submit=True):
-            new_item = st.text_input("", placeholder="Add ingredient...", label_visibility="collapsed")
-            if st.form_submit_button("➕ Add", use_container_width=True) and new_item.strip():
-                new_items = [i.strip().lower() for i in new_item.split(",") if i.strip()]
-                updated = list(dict.fromkeys(ingredients + new_items))
-                supabase.table("pantry").upsert({"user_id": user_id, "ingredients": updated}).execute()
+# ── Chip grid helper ───────────────────────────────────────────────────────────
+def render_chip_grid(opts, state_key, selected_low, save_fn, prefix, cols=3):
+    columns = st.columns(cols)
+    for i, opt in enumerate(opts):
+        with columns[i % cols]:
+            is_sel = opt.lower() in selected_low
+            if st.button(
+                opt,
+                key=f"{prefix}_{i}",
+                use_container_width=True,
+                type="primary" if is_sel else "secondary",
+            ):
+                _toggle(state_key, opt, save_fn)
                 st.rerun()
 
-        # Current pantry items
-        if ingredients:
-            for idx, item in enumerate(ingredients):
-                if st.session_state.editing_pantry == idx:
-                    edit_key = f"edit_pantry_val_{idx}"
-                    if edit_key not in st.session_state:
-                        st.session_state[edit_key] = item
-                    ec1, ec2, ec3 = st.columns([5, 1, 1])
-                    with ec1:
-                        st.text_input("", key=edit_key, label_visibility="collapsed")
-                    with ec2:
-                        st.markdown('<div class="action-btn">', unsafe_allow_html=True)
-                        if st.button("✓", key=f"save_pantry_{idx}", use_container_width=True):
-                            new_val = st.session_state[edit_key].strip().lower()
-                            if new_val:
-                                updated = [new_val if j == idx else x for j, x in enumerate(ingredients)]
-                                supabase.table("pantry").upsert({"user_id": user_id, "ingredients": updated}).execute()
-                            st.session_state.editing_pantry = None
-                            st.rerun()
-                        st.markdown('</div>', unsafe_allow_html=True)
-                    with ec3:
-                        st.markdown('<div class="action-btn">', unsafe_allow_html=True)
-                        if st.button("✕", key=f"cancel_pantry_{idx}", use_container_width=True):
-                            st.session_state.editing_pantry = None
-                            st.rerun()
-                        st.markdown('</div>', unsafe_allow_html=True)
-                else:
-                    ic1, ic2, ic3, ic4 = st.columns([4, 1, 1, 1])
-                    with ic1:
-                        st.markdown(f"• {item.strip().capitalize()}")
-                    with ic2:
-                        st.markdown('<div class="action-btn">', unsafe_allow_html=True)
-                        if st.button("✏️", key=f"edit_pantry_{idx}", use_container_width=True):
-                            st.session_state.editing_pantry = idx
-                            st.session_state[f"edit_pantry_val_{idx}"] = item
-                            st.rerun()
-                        st.markdown('</div>', unsafe_allow_html=True)
-                    with ic3:
-                        st.markdown('<div class="action-btn">', unsafe_allow_html=True)
-                        if st.button("🛒", key=f"shop_pantry_{idx}", use_container_width=True, help="Move to shopping list"):
-                            updated_pantry = [x for j, x in enumerate(ingredients) if j != idx]
-                            supabase.table("pantry").upsert({"user_id": user_id, "ingredients": updated_pantry}).execute()
-                            shop_res = supabase.table("shopping_list").select("items").eq("user_id", user_id).execute()
-                            shop_items = list(shop_res.data[0]["items"]) if shop_res.data else []
-                            if item.strip().lower() not in shop_items:
-                                shop_items.append(item.strip().lower())
-                            supabase.table("shopping_list").upsert({"user_id": user_id, "items": shop_items}).execute()
-                            st.rerun()
-                        st.markdown('</div>', unsafe_allow_html=True)
-                    with ic4:
-                        st.markdown('<div class="action-btn">', unsafe_allow_html=True)
-                        if st.button("✕", key=f"del_pantry_{idx}", use_container_width=True):
-                            updated = [x for j, x in enumerate(ingredients) if j != idx]
-                            supabase.table("pantry").upsert({"user_id": user_id, "ingredients": updated}).execute()
-                            st.rerun()
-                        st.markdown('</div>', unsafe_allow_html=True)
+# ── Recipe card renderer ───────────────────────────────────────────────────────
+def _render_recipe_cards(text: str):
+    sections = re.split(r"\n?---\n?", text)
+    rendered = 0
+    for section in sections:
+        section = section.strip()
+        if not section or "##" not in section:
+            continue
+        name_m = re.search(r"##\s+(.+)", section)
+        name = name_m.group(1).strip() if name_m else "Recipe"
 
-    # ── Recipe panel (full width, below pantry) ───────────────
-    st.markdown("#### 🍽️ Recipes")
-    special_request = st.text_input(
-        "Any special request?",
-        placeholder="e.g. quick meal, Italian tonight...",
+        def _f(label):
+            m = re.search(rf"\*\*{label}:\*\*\s*(.+?)(?=\n\*\*|\Z)", section, re.DOTALL)
+            return m.group(1).strip() if m else ""
+
+        with st.container(border=True):
+            st.markdown(f"### {name}")
+            if ing := _f("Ingredients"):
+                st.markdown(f"**Ingredients:** {ing}")
+            if dirs := _f("Directions"):
+                st.markdown(f"**Directions:** {dirs}")
+            if t := _f("Cook time"):
+                st.markdown(f"**Cook time:** {t}")
+            if w := _f("Watch"):
+                st.markdown(f"**Watch:** {w}")
+        rendered += 1
+
+    if not rendered:
+        st.markdown(text)
+
+# ════════════════════════════════════════════════════════════════════════════
+# SIDEBAR — Persistent selections panel
+# ════════════════════════════════════════════════════════════════════════════
+with st.sidebar:
+    if user_picture:
+        pc, nc = st.columns([1, 3])
+        with pc:
+            st.image(user_picture, width=38)
+        with nc:
+            st.markdown(f"**{user_name}**")
+            st.caption(user_id[:28] + "…" if len(user_id) > 28 else user_id)
+    else:
+        st.markdown(f"**{user_full_name}**")
+    st.divider()
+
+    # ── Pantry ──
+    ings = st.session_state.ingredients
+    cnt = f" ({len(ings)})" if ings else ""
+    st.markdown(f"**🥕 Pantry{cnt}**")
+    if ings:
+        for i, item in enumerate(ings):
+            c1, c2 = st.columns([5, 1])
+            with c1:
+                st.markdown(f"<div class='sb-item'>• {item.capitalize()}</div>", unsafe_allow_html=True)
+            with c2:
+                if st.button("✕", key=f"sb_di_{i}"):
+                    st.session_state.ingredients = [x for j, x in enumerate(ings) if j != i]
+                    _save_pantry()
+                    st.rerun()
+    else:
+        st.caption("Empty — use wizard to add")
+
+    # ── Cuisines ──
+    cuiss = st.session_state.cuisines
+    cnt = f" ({len(cuiss)})" if cuiss else ""
+    st.markdown(f"**🍜 Cuisines{cnt}**")
+    if cuiss:
+        for i, c in enumerate(cuiss):
+            c1, c2 = st.columns([5, 1])
+            with c1:
+                st.markdown(f"<div class='sb-item'>• {c.capitalize()}</div>", unsafe_allow_html=True)
+            with c2:
+                if st.button("✕", key=f"sb_dc_{i}"):
+                    st.session_state.cuisines = [x for j, x in enumerate(cuiss) if j != i]
+                    _save_prefs()
+                    st.rerun()
+    else:
+        st.caption("None set")
+
+    # ── Equipment ──
+    equip = st.session_state.equipment
+    cnt = f" ({len(equip)})" if equip else ""
+    st.markdown(f"**🍳 Equipment{cnt}**")
+    if equip:
+        for i, e in enumerate(equip):
+            c1, c2 = st.columns([5, 1])
+            with c1:
+                st.markdown(f"<div class='sb-item'>• {e.capitalize()}</div>", unsafe_allow_html=True)
+            with c2:
+                if st.button("✕", key=f"sb_de_{i}"):
+                    st.session_state.equipment = [x for j, x in enumerate(equip) if j != i]
+                    _save_prefs()
+                    st.rerun()
+    else:
+        st.caption("None set")
+
+    st.divider()
+
+    # ── Shopping list ──
+    shop = st.session_state.shop_items
+    cnt = f" ({len(shop)})" if shop else ""
+    st.markdown(f"**🛒 Shopping{cnt}**")
+    if shop:
+        for i, si in enumerate(shop):
+            c1, c2 = st.columns([4, 1])
+            with c1:
+                st.markdown(f"<div class='sb-item'>• {si.capitalize()}</div>", unsafe_allow_html=True)
+            with c2:
+                if st.button("✓", key=f"sb_buy_{i}", help="Mark bought → pantry"):
+                    st.session_state.shop_items = [x for j, x in enumerate(shop) if j != i]
+                    if si.lower() not in [x.lower() for x in st.session_state.ingredients]:
+                        st.session_state.ingredients = st.session_state.ingredients + [si.lower()]
+                    _save_shop()
+                    _save_pantry()
+                    st.rerun()
+
+    with st.form("sb_shop_add", clear_on_submit=True):
+        ns = st.text_input("", placeholder="Add item...", label_visibility="collapsed")
+        if st.form_submit_button("➕ Add", use_container_width=True) and ns.strip():
+            new_items = [x.strip().lower() for x in ns.split(",") if x.strip()]
+            st.session_state.shop_items = list(dict.fromkeys(st.session_state.shop_items + new_items))
+            _save_shop()
+            st.rerun()
+
+    st.divider()
+
+    if st.session_state.screen == "recipes":
+        if st.button("✏️ Update pantry & prefs", use_container_width=True):
+            st.session_state.screen = "wizard_0"
+            st.rerun()
+
+    if st.button("🚪 Sign out", use_container_width=True):
+        for k in list(st.session_state.keys()):
+            del st.session_state[k]
+        st.rerun()
+
+    st.caption("Built with LangGraph · Groq · Supabase 🌱")
+
+
+# ════════════════════════════════════════════════════════════════════════════
+# MAIN AREA
+# ════════════════════════════════════════════════════════════════════════════
+screen = st.session_state.screen
+
+# ── Wizard ───────────────────────────────────────────────────────────────────
+if screen.startswith("wizard_"):
+    step_idx = int(screen.split("_")[1])
+    step = WIZARD[step_idx]
+    state_key = step["key"]
+    save_fn = _save_pantry if state_key == "ingredients" else _save_prefs
+    selected_low = set(x.lower() for x in st.session_state.get(state_key, []))
+
+    # Progress bar
+    dots_html = '<div class="prog-dots">'
+    for i in range(len(WIZARD)):
+        if i < step_idx:
+            dots_html += '<span class="pdot done"></span>'
+        elif i == step_idx:
+            dots_html += '<span class="pdot active"></span>'
+        else:
+            dots_html += '<span class="pdot"></span>'
+    dots_html += '</div>'
+    st.markdown(dots_html, unsafe_allow_html=True)
+
+    # Header
+    sel_count = len([x for x in st.session_state.get(state_key, []) if x])
+    badge = f'<span class="sel-badge">{sel_count} selected</span>' if sel_count else ""
+    st.markdown(
+        f'<div class="step-hdr">'
+        f'<span class="big-emoji">{step["emoji"]}</span>'
+        f'<h2>{step["title"]}{badge}</h2>'
+        f'<p class="hint">{step["hint"]}</p>'
+        f'</div>',
+        unsafe_allow_html=True,
     )
-    suggest_clicked = st.button("✨ Suggest Recipes", use_container_width=True, type="primary")
 
-    if suggest_clicked:
+    # Chip grid — first 15 fit on one screen, rest in expander
+    primary_opts = step["options"][:15]
+    extra_opts = step["options"][15:]
+
+    render_chip_grid(primary_opts, state_key, selected_low, save_fn, f"main_{state_key}")
+
+    if extra_opts:
+        with st.expander(f"More options ({len(extra_opts)})"):
+            render_chip_grid(extra_opts, state_key, selected_low, save_fn, f"extra_{state_key}")
+
+    # Custom add
+    st.markdown("")
+    with st.form(f"custom_add_{state_key}", clear_on_submit=True):
+        custom = st.text_input(
+            "", placeholder=step["placeholder"], label_visibility="collapsed"
+        )
+        if st.form_submit_button("➕ Add custom", use_container_width=True) and custom.strip():
+            items = [x.strip().lower() for x in custom.split(",") if x.strip()]
+            existing_low = [x.lower() for x in st.session_state[state_key]]
+            for item in items:
+                if item not in existing_low:
+                    st.session_state[state_key] = st.session_state[state_key] + [item]
+            save_fn()
+            st.rerun()
+
+    # Navigation
+    st.markdown("")
+    if step_idx == 0:
+        nav_cols = st.columns([3, 1])
+        with nav_cols[0]:
+            if st.button("Continue →", use_container_width=True, type="primary"):
+                st.session_state.screen = "wizard_1"
+                st.rerun()
+        with nav_cols[1]:
+            if st.button("Skip", use_container_width=True):
+                st.session_state.screen = "wizard_1"
+                st.rerun()
+    else:
+        bc, nc = st.columns([1, 2])
+        with bc:
+            if st.button("← Back", use_container_width=True):
+                st.session_state.screen = f"wizard_{step_idx - 1}"
+                st.rerun()
+        with nc:
+            is_last = step_idx == len(WIZARD) - 1
+            label = "✨ Find Recipes!" if is_last else "Continue →"
+            next_screen = "recipes" if is_last else f"wizard_{step_idx + 1}"
+            if st.button(label, use_container_width=True, type="primary"):
+                st.session_state.screen = next_screen
+                st.rerun()
+
+# ── Recipe screen ─────────────────────────────────────────────────────────────
+elif screen == "recipes":
+    ing_count = len(st.session_state.ingredients)
+    cui_count = len(st.session_state.cuisines)
+
+    st.markdown(
+        f'<div class="recipe-welcome">'
+        f'<span style="font-size:2.2rem">🧞</span>'
+        f'<h2 style="margin:4px 0">Hey {user_name}!</h2>'
+        f'<p style="color:#888;font-size:0.88rem;margin:0">'
+        f'{ing_count} ingredient{"s" if ing_count != 1 else ""}'
+        + (f" · {cui_count} cuisine{'s' if cui_count != 1 else ''}" if cui_count else "")
+        + f'</p></div>',
+        unsafe_allow_html=True,
+    )
+
+    if not ing_count:
+        st.warning("Your pantry is empty — tap **✏️ Update pantry & prefs** in the sidebar to add ingredients.", icon="🥕")
+
+    special = st.text_input(
+        "Any special request?",
+        placeholder="e.g. quick 30-min meal, high protein, pasta tonight...",
+    )
+
+    if st.button("✨ Suggest Recipes", use_container_width=True, type="primary"):
         prompt = "Suggest recipes from my pantry."
-        if special_request.strip():
-            prompt += f" Special request: {special_request.strip()}"
+        if special.strip():
+            prompt += f" Special request: {special.strip()}"
         with st.spinner("🧞 Cooking up some ideas..."):
             reply = chat(
                 user_input=prompt,
@@ -404,166 +591,17 @@ with tab_recipes:
         st.session_state.last_recipes = reply
 
     if st.session_state.get("last_recipes"):
+        st.divider()
         _render_recipe_cards(st.session_state.last_recipes)
-        if st.button("🔄 Clear & start over", use_container_width=True):
+        if st.button("🔄 Get new suggestions", use_container_width=True):
             st.session_state.pop("last_recipes", None)
             st.rerun()
     else:
-        st.markdown("""
-        <div class="empty-state">
-            <p style="font-size:2.5em; margin-bottom:6px;">🥗</p>
-            <p style="font-size:0.95em;">
-                Pick some ingredients,<br>then hit <b>Suggest Recipes</b>!
-            </p>
-        </div>
-        """, unsafe_allow_html=True)
-
-# ════════════════════════════════════════════════════════════
-# SHOPPING TAB
-# ════════════════════════════════════════════════════════════
-with tab_shop:
-    try:
-        shop_res = supabase.table("shopping_list").select("items").eq("user_id", user_id).execute()
-        shop_items = list(shop_res.data[0]["items"]) if shop_res.data else []
-    except Exception:
-        shop_items = []
-
-    with st.form("shop_add", clear_on_submit=True):
-        new_shop = st.text_input("", placeholder="e.g. oat milk, paneer", label_visibility="collapsed")
-        if st.form_submit_button("➕ Add to List", use_container_width=True) and new_shop.strip():
-            new_shop_items = [i.strip().lower() for i in new_shop.split(",") if i.strip()]
-            updated_shop = list(dict.fromkeys(shop_items + new_shop_items))
-            supabase.table("shopping_list").upsert({"user_id": user_id, "items": updated_shop}).execute()
-            st.rerun()
-
-    if shop_items:
-        st.caption(f"{len(shop_items)} item{'s' if len(shop_items) != 1 else ''}")
-        for idx, item in enumerate(shop_items):
-            if st.session_state.editing_shop == idx:
-                edit_key = f"edit_shop_val_{idx}"
-                if edit_key not in st.session_state:
-                    st.session_state[edit_key] = item
-                c1, c2, c3 = st.columns([5, 1, 1])
-                with c1:
-                    st.text_input("", key=edit_key, label_visibility="collapsed")
-                with c2:
-                    st.markdown('<div class="action-btn">', unsafe_allow_html=True)
-                    if st.button("✓", key=f"save_shop_{idx}", use_container_width=True):
-                        new_val = st.session_state[edit_key].strip().lower()
-                        if new_val:
-                            updated_shop = [new_val if j == idx else x for j, x in enumerate(shop_items)]
-                            supabase.table("shopping_list").upsert({"user_id": user_id, "items": updated_shop}).execute()
-                        st.session_state.editing_shop = None
-                        st.rerun()
-                    st.markdown('</div>', unsafe_allow_html=True)
-                with c3:
-                    st.markdown('<div class="action-btn">', unsafe_allow_html=True)
-                    if st.button("✕", key=f"cancel_shop_{idx}", use_container_width=True):
-                        st.session_state.editing_shop = None
-                        st.rerun()
-                    st.markdown('</div>', unsafe_allow_html=True)
-            else:
-                c1, c2, c3, c4 = st.columns([4, 1, 1, 1])
-                with c1:
-                    st.markdown(f"• {item.strip().capitalize()}")
-                with c2:
-                    st.markdown('<div class="action-btn">', unsafe_allow_html=True)
-                    if st.button("✏️", key=f"edit_shop_{idx}", use_container_width=True):
-                        st.session_state.editing_shop = idx
-                        st.session_state[f"edit_shop_val_{idx}"] = item
-                        st.rerun()
-                    st.markdown('</div>', unsafe_allow_html=True)
-                with c3:
-                    st.markdown('<div class="action-btn">', unsafe_allow_html=True)
-                    if st.button("✓", key=f"bought_{idx}", use_container_width=True, help="Purchased — move to pantry"):
-                        updated_shop = [x for j, x in enumerate(shop_items) if j != idx]
-                        supabase.table("shopping_list").upsert({"user_id": user_id, "items": updated_shop}).execute()
-                        pantry_res = supabase.table("pantry").select("ingredients").eq("user_id", user_id).execute()
-                        pantry_items = list(pantry_res.data[0]["ingredients"]) if pantry_res.data else []
-                        if item.strip().lower() not in pantry_items:
-                            pantry_items.append(item.strip().lower())
-                        supabase.table("pantry").upsert({"user_id": user_id, "ingredients": pantry_items}).execute()
-                        st.rerun()
-                    st.markdown('</div>', unsafe_allow_html=True)
-                with c4:
-                    st.markdown('<div class="action-btn">', unsafe_allow_html=True)
-                    if st.button("✕", key=f"del_shop_{idx}", use_container_width=True):
-                        updated_shop = [x for j, x in enumerate(shop_items) if j != idx]
-                        supabase.table("shopping_list").upsert({"user_id": user_id, "items": updated_shop}).execute()
-                        st.rerun()
-                    st.markdown('</div>', unsafe_allow_html=True)
-    else:
-        st.info("Shopping list is empty.")
-
-# ════════════════════════════════════════════════════════════
-# PREFERENCES TAB
-# ════════════════════════════════════════════════════════════
-with tab_prefs:
-    prefs_result = supabase.table("preferences").select("*").eq("user_id", user_id).execute()
-    prefs = prefs_result.data[0] if prefs_result.data else {}
-
-    # Account
-    if user_picture:
-        ac1, ac2 = st.columns([1, 4])
-        with ac1:
-            st.image(user_picture, width=48)
-        with ac2:
-            st.markdown(f"**{user_full_name}**")
-            st.caption(user_id)
-    else:
-        st.markdown(f"**{user_full_name}**")
-        st.caption(user_id)
-
-    st.divider()
-
-    # Spice level
-    spice_options = ["", "low", "medium", "high"]
-    current_spice = prefs.get("spice_level") or ""
-    spice_idx = spice_options.index(current_spice) if current_spice in spice_options else 0
-    new_spice = st.selectbox("🌶️ Spice level", spice_options, index=spice_idx,
-                             format_func=lambda x: x.capitalize() if x else "Not set")
-    if new_spice != current_spice:
-        supabase.table("preferences").upsert({"user_id": user_id, "spice_level": new_spice}).execute()
-        st.rerun()
-
-    # Dislikes
-    dislikes = prefs.get("dislikes") or []
-    st.markdown("**🚫 Dislikes**")
-    for idx, d in enumerate(dislikes):
-        c1, c2 = st.columns([5, 1])
-        with c1:
-            st.markdown(f"• {d.capitalize()}")
-        with c2:
-            if st.button("✕", key=f"del_dislike_{idx}"):
-                supabase.table("preferences").upsert({"user_id": user_id, "dislikes": [x for j, x in enumerate(dislikes) if j != idx]}).execute()
-                st.rerun()
-    with st.form("dislike_add", clear_on_submit=True):
-        new_dislike = st.text_input("", placeholder="Add dislike...", label_visibility="collapsed")
-        if st.form_submit_button("➕ Add Dislike", use_container_width=True) and new_dislike.strip():
-            supabase.table("preferences").upsert({"user_id": user_id, "dislikes": dislikes + [new_dislike.strip().lower()]}).execute()
-            st.rerun()
-
-    # Cuisines
-    cuisines = prefs.get("favorite_cuisines") or []
-    st.markdown("**❤️ Favourite Cuisines**")
-    for idx, cuisine in enumerate(cuisines):
-        c1, c2 = st.columns([5, 1])
-        with c1:
-            st.markdown(f"• {cuisine.capitalize()}")
-        with c2:
-            if st.button("✕", key=f"del_cuisine_{idx}"):
-                supabase.table("preferences").upsert({"user_id": user_id, "favorite_cuisines": [x for j, x in enumerate(cuisines) if j != idx]}).execute()
-                st.rerun()
-    with st.form("cuisine_add", clear_on_submit=True):
-        new_cuisine = st.text_input("", placeholder="Add cuisine...", label_visibility="collapsed")
-        if st.form_submit_button("➕ Add Cuisine", use_container_width=True) and new_cuisine.strip():
-            supabase.table("preferences").upsert({"user_id": user_id, "favorite_cuisines": cuisines + [new_cuisine.strip().lower()]}).execute()
-            st.rerun()
-
-    st.divider()
-    if st.button("🚪 Sign out", use_container_width=True):
-        st.session_state.pop("user_info", None)
-        st.session_state.pop("token", None)
-        st.rerun()
-
-    st.caption("Built with LangGraph · Groq · Supabase 🌱")
+        st.markdown(
+            '<div class="empty-state">'
+            '<p style="font-size:2.5em;margin-bottom:6px">🥗</p>'
+            '<p>Hit <b>Suggest Recipes</b> to get started!<br>'
+            '<small>Update your pantry anytime from the sidebar.</small></p>'
+            "</div>",
+            unsafe_allow_html=True,
+        )
