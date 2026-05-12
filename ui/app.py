@@ -297,32 +297,98 @@ def chip_grid(options: list, state_key: str, selected_low: set, save_fn, prefix:
                 _toggle(state_key, opt, save_fn)
                 st.rerun()
 
-# ── Recipe card renderer ──────────────────────────────────────────────────────
-def render_recipe_cards(text: str):
-    sections = re.split(r"\n?---\n?", text)
-    rendered = 0
-    for sec in sections:
+# ── Recipe parsing + modal ────────────────────────────────────────────────────
+def _parse_recipes(text: str) -> list:
+    recipes = []
+    for sec in re.split(r"\n?---\n?", text):
         sec = sec.strip()
         if not sec or "##" not in sec:
             continue
-        name_m = re.search(r"##\s+(.+)", sec)
-        name = name_m.group(1).strip() if name_m else "Recipe"
+        name_m = re.search(r"##\s+(?:🍲\s*)?(.+)", sec)
+        if not name_m:
+            continue
 
-        def _f(label, _sec=sec):
-            m = re.search(rf"\*\*{label}:\*\*\s*(.+?)(?=\n\*\*|\Z)", _sec, re.DOTALL)
+        def _field(label, _s=sec):
+            m = re.search(rf"\*\*{label}:\*\*\s*(.+?)(?=\n\*\*|\Z)", _s, re.DOTALL)
             return m.group(1).strip() if m else ""
 
-        with st.container(border=True):
-            st.markdown(f"### {name}")
-            if v := _f("Ingredients"): st.markdown(f"**Ingredients:** {v}")
-            if v := _f("Directions"):  st.markdown(f"**Directions:** {v}")
-            if v := _f("Cook time"):   st.markdown(f"**Cook time:** {v}")
-            if v := _f("Equipment"):   st.markdown(f"**Equipment:** {v}")
-            if v := _f("Watch"):       st.markdown(f"**Watch:** {v}")
-        rendered += 1
-    if not rendered:
-        # Might be wellness/nutrition output — render as plain markdown
+        watch = _field("Watch")
+        yt_id = None
+        if watch:
+            yt_m = re.search(r"v=([A-Za-z0-9_-]{11})", watch)
+            if yt_m:
+                yt_id = yt_m.group(1)
+
+        recipes.append({
+            "name":        name_m.group(1).strip().lstrip("🍲").strip(),
+            "ingredients": _field("Ingredients"),
+            "directions":  _field("Directions"),
+            "cook_time":   _field("Cook time"),
+            "equipment":   _field("Equipment"),
+            "watch":       watch,
+            "yt_id":       yt_id,
+        })
+    return recipes
+
+
+@st.dialog("📖 Recipe", width="large")
+def _recipe_modal(recipe: dict):
+    st.markdown(f"## {recipe['name']}")
+    meta = []
+    if recipe["cook_time"]: meta.append(f"⏱ {recipe['cook_time']}")
+    if recipe["equipment"]: meta.append(f"🍳 {recipe['equipment']}")
+    if meta:
+        st.caption("  ·  ".join(meta))
+    st.divider()
+
+    if recipe["ingredients"]:
+        st.markdown("### 🧺 Ingredients")
+        for ing in [i.strip() for i in recipe["ingredients"].split(",") if i.strip()]:
+            st.markdown(f"- {ing}")
+
+    if recipe["directions"]:
+        st.markdown("### 👩‍🍳 Directions")
+        st.markdown(recipe["directions"])
+
+    if recipe["yt_id"]:
+        st.markdown("### ▶️ Watch it")
+        # Responsive 16:9 YouTube embed
+        st.markdown(
+            f'<div style="position:relative;padding-bottom:56.25%;height:0;'
+            f'overflow:hidden;border-radius:12px;margin-top:8px">'
+            f'<iframe style="position:absolute;top:0;left:0;width:100%;height:100%;'
+            f'border:none" src="https://www.youtube.com/embed/{recipe["yt_id"]}" '
+            f'allowfullscreen></iframe></div>',
+            unsafe_allow_html=True,
+        )
+    elif recipe["watch"]:
+        st.markdown(f"▶️ {recipe['watch']}")
+
+
+def render_recipe_cards(text: str):
+    recipes = _parse_recipes(text)
+    if not recipes:
         st.markdown(text)
+        return
+    for i, r in enumerate(recipes):
+        with st.container(border=True):
+            # Header row
+            st.markdown(f"### 🍲 {r['name']}")
+            meta = []
+            if r["cook_time"]: meta.append(f"⏱ {r['cook_time']}")
+            if r["equipment"]: meta.append(f"🍳 {r['equipment']}")
+            if meta:
+                st.caption("  ·  ".join(meta))
+            # Teaser: first 3 ingredients
+            if r["ingredients"]:
+                tease = ", ".join(r["ingredients"].split(",")[:3]).strip()
+                st.markdown(
+                    f'<p style="color:#666;font-size:0.85rem;margin:4px 0 8px">'
+                    f'{tease}…</p>',
+                    unsafe_allow_html=True,
+                )
+            if st.button("Open Full Recipe →", key=f"open_{i}", use_container_width=True, type="primary"):
+                _recipe_modal(r)
 
 # ════════════════════════════════════════════════════════════════════════════
 # SIDEBAR — persistent selections panel
@@ -494,27 +560,44 @@ if screen.startswith("wizard_"):
                 st.session_state.screen = "wizard_1"; st.rerun()
         with c2:
             if st.button("Skip all", use_container_width=True):
-                st.session_state.screen = "recipes"; st.rerun()
+                st.session_state.screen = "recipes"
+                st.session_state.auto_suggest = True
+                st.rerun()
     else:
         c_back, c_next, c_skip = st.columns([1, 2, 1])
         with c_back:
             if st.button("← Back", use_container_width=True):
                 st.session_state.screen = f"wizard_{step_idx - 1}"; st.rerun()
         with c_next:
-            label     = "✨ Find Recipes!" if is_last else "Continue →"
-            next_scr  = "recipes" if is_last else f"wizard_{step_idx + 1}"
+            label    = "✨ Find Recipes!" if is_last else "Continue →"
+            next_scr = "recipes" if is_last else f"wizard_{step_idx + 1}"
             if st.button(label, use_container_width=True, type="primary"):
-                st.session_state.screen = next_scr; st.rerun()
+                st.session_state.screen = next_scr
+                if next_scr == "recipes":
+                    st.session_state.auto_suggest = True  # fire immediately on arrival
+                st.rerun()
         with c_skip:
             if not is_last:
-                next_skip = f"wizard_{step_idx + 1}"
                 if st.button("Skip →", use_container_width=True):
-                    st.session_state.screen = next_skip; st.rerun()
+                    st.session_state.screen = f"wizard_{step_idx + 1}"; st.rerun()
 
 # ── RECIPE SCREEN ─────────────────────────────────────────────────────────────
 elif screen == "recipes":
     ing_n = len(st.session_state.ingredients)
     cui_n = len(st.session_state.cuisines)
+
+    # Auto-trigger if arriving from wizard "Find Recipes!" button
+    if st.session_state.get("auto_suggest"):
+        st.session_state.auto_suggest = False
+        with st.spinner("🧞 Analyst → Chef → Nutritionist working on it..."):
+            reply = chat(
+                user_input="Suggest recipes from my pantry.",
+                agent=st.session_state.agent,
+                thread_id=user_id,
+                user_id=user_id,
+            )
+        st.session_state.last_recipes = reply
+        st.rerun()
 
     detail = f"🥕 {ing_n} item{'s' if ing_n != 1 else ''}"
     if cui_n:
@@ -530,55 +613,67 @@ elif screen == "recipes":
     )
 
     if not ing_n:
-        st.info(
-            "Your pantry is empty. Open the menu (☰) and tap **✏️ Update pantry & prefs** to add ingredients.",
-            icon="🥕",
-        )
-
-    special = st.text_input(
-        "Any special request?",
-        placeholder="e.g. quick 30-min meal, high protein, pasta...",
-    )
-
-    if st.button("✨ Suggest Recipes", use_container_width=True, type="primary"):
-        prompt = "Suggest recipes from my pantry."
-        if special.strip():
-            prompt += f" Special request: {special.strip()}"
-        with st.spinner("🧞 Analyst → Chef → Nutritionist working together..."):
-            reply = chat(
-                user_input=prompt,
-                agent=st.session_state.agent,
-                thread_id=user_id,
-                user_id=user_id,
-            )
-        st.session_state.last_recipes = reply
+        st.info("Pantry empty — open ☰ and tap **✏️ Update pantry & prefs**.", icon="🥕")
 
     if st.session_state.get("last_recipes"):
-        st.divider()
-        # Split recipe cards from the wellness/nutrition section that follows
+        # Split recipe cards from the wellness/nutrition section
         full = st.session_state.last_recipes
-        # Recipes are the --- delimited ## sections; wellness starts at 🥗 or 🛒
-        wellness_start = re.search(r"\n(🥗|\*\*🥗|\*\*Nutrition|---\n\n🥗)", full)
-        if wellness_start:
-            recipe_part   = full[:wellness_start.start()].strip()
-            wellness_part = full[wellness_start.start():].strip()
-        else:
-            recipe_part   = full
-            wellness_part = ""
+        w_start = re.search(r"\n(🥗|\*\*🥗|\*\*Nutrition)", full)
+        recipe_part   = full[:w_start.start()].strip() if w_start else full
+        wellness_part = full[w_start.start():].strip()  if w_start else ""
 
         render_recipe_cards(recipe_part)
 
         if wellness_part:
-            with st.expander("🥗 Nutrition & Shopping Advice", expanded=True):
+            with st.expander("🥗 Nutrition & Shopping Advice"):
                 st.markdown(wellness_part)
 
-        if st.button("🔄 New suggestions", use_container_width=True):
-            st.session_state.pop("last_recipes", None); st.rerun()
+        st.divider()
+        special = st.text_input(
+            "Refine or make a new request:",
+            placeholder="e.g. something quicker, more protein, Italian…",
+        )
+        c1, c2 = st.columns([3, 1])
+        with c1:
+            if st.button("✨ New Suggestions", use_container_width=True, type="primary"):
+                prompt = "Suggest recipes from my pantry."
+                if special.strip():
+                    prompt += f" Special request: {special.strip()}"
+                with st.spinner("🧞 Working on it..."):
+                    st.session_state.last_recipes = chat(
+                        user_input=prompt,
+                        agent=st.session_state.agent,
+                        thread_id=user_id,
+                        user_id=user_id,
+                    )
+                st.rerun()
+        with c2:
+            if st.button("🔄 Clear", use_container_width=True):
+                del st.session_state["last_recipes"]
+                st.rerun()
     else:
+        special = st.text_input(
+            "Any special request?",
+            placeholder="e.g. quick 30-min meal, high protein, pasta…",
+        )
+        if st.button("✨ Suggest Recipes", use_container_width=True, type="primary"):
+            prompt = "Suggest recipes from my pantry."
+            if special.strip():
+                prompt += f" Special request: {special.strip()}"
+            with st.spinner("🧞 Analyst → Chef → Nutritionist working on it..."):
+                st.session_state.last_recipes = chat(
+                    user_input=prompt,
+                    agent=st.session_state.agent,
+                    thread_id=user_id,
+                    user_id=user_id,
+                )
+            st.rerun()
+
         st.markdown(
             '<div class="empty-hint">'
             '<p style="font-size:2.2em;margin-bottom:6px">🥗</p>'
-            '<p>Hit <b>Suggest Recipes</b> to get started!</p>'
+            '<p>Your 3-agent team is ready.<br>'
+            '<small>Tap <b>Suggest Recipes</b> or finish the wizard.</small></p>'
             '</div>',
             unsafe_allow_html=True,
         )

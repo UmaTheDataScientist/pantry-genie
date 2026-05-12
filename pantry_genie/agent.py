@@ -86,8 +86,7 @@ For EACH recipe:
 1. Build it primarily from the provided pantry ingredients.
 2. If a key ingredient is missing or would improve the dish, call find_vegetarian_substitution
    to find a pantry-friendly swap — then use THAT substitute in the recipe.
-3. After finalising the recipe, call search_youtube once to get a video link.
-4. Format using EXACTLY this template (no variations):
+3. Format using EXACTLY this template (no variations, no extra fields):
 
 ---
 ## 🍲 [Recipe Name]
@@ -95,13 +94,13 @@ For EACH recipe:
 **Directions:** Clear 2-3 sentence method with any key technique tips.
 **Cook time:** X minutes
 **Equipment:** [what's needed, e.g. stovetop, oven, instant pot]
-**Watch:** [link returned by search_youtube]
 
 Rules:
 • No meat or fish — ever.
 • Be creative. Flavour > simplicity.
 • If equipment like Instant Pot is in the pantry analysis, prefer those recipes.
-• Keep ingredient lists realistic — under 12 items."""
+• Keep ingredient lists realistic — under 12 items.
+• Do NOT add a Watch or YouTube field — that is handled separately."""
 
 
 _WELLNESS_PROMPT = """You are the Wellness & Shopping Advisor for PantryGenie 🧞.
@@ -266,37 +265,57 @@ def build_agent():
     )
 
 
-# ── Output formatting ─────────────────────────────────────────────────────────
-def _resolve_leaked_youtube_tags(text: str) -> str:
-    """Fallback: resolve any <function=search_youtube>{...}</function> that leaked through."""
-    pattern = r'<function=search_youtube>\{"recipe_name":\s*"([^"]+)"\}</function>'
+# ── YouTube injection (deterministic — never goes through the LLM) ────────────
+def _yt_search(recipe_name: str) -> str:
+    """Search YouTube for a recipe video. Returns a markdown link or empty string."""
+    api_key = os.getenv("YOUTUBE_API_KEY", "")
+    if not api_key:
+        return ""
+    try:
+        resp = requests.get(
+            "https://www.googleapis.com/youtube/v3/search",
+            params={
+                "part": "snippet",
+                "q": f"{recipe_name} vegetarian recipe",
+                "type": "video",
+                "maxResults": 1,
+                "key": api_key,
+            },
+            timeout=5,
+        )
+        resp.raise_for_status()
+        items = resp.json().get("items", [])
+        if items:
+            vid   = items[0]["id"]["videoId"]
+            title = items[0]["snippet"]["title"]
+            return f"[▶️ {title}](https://www.youtube.com/watch?v={vid})"
+    except Exception:
+        pass
+    return ""
 
-    def fetch(match):
-        name    = match.group(1)
-        api_key = os.getenv("YOUTUBE_API_KEY", "")
-        if not api_key:
-            return "*(no YouTube key)*"
-        try:
-            resp  = requests.get(
-                "https://www.googleapis.com/youtube/v3/search",
-                params={"part": "snippet", "q": f"{name} vegetarian recipe",
-                        "type": "video", "maxResults": 1, "key": api_key},
-                timeout=5,
-            )
-            items = resp.json().get("items", [])
-            if items:
-                vid   = items[0]["id"]["videoId"]
-                title = items[0]["snippet"]["title"]
-                return f"[▶️ {title}](https://www.youtube.com/watch?v={vid})"
-        except Exception:
-            pass
-        return "*(video unavailable)*"
 
-    return re.sub(pattern, fetch, text)
+def _inject_youtube_links(text: str) -> str:
+    """Split output into recipe sections, search YouTube for each by name, inject link.
+    This replaces any leaked <function=...> tags and fills missing Watch fields.
+    """
+    sections = re.split(r"(?=\n---\n|^---\n)", text, flags=re.MULTILINE)
+    out = []
+    for section in sections:
+        name_m = re.search(r"##\s+(?:🍲\s*)?(.+)", section)
+        if name_m:
+            recipe_name = name_m.group(1).strip()
+            link = _yt_search(recipe_name)
+            if link:
+                # Replace any existing Watch line (leaked tag, empty, placeholder)
+                if "**Watch:**" in section:
+                    section = re.sub(r"\*\*Watch:\*\*[^\n]*", f"**Watch:** {link}", section)
+                else:
+                    section = section.rstrip() + f"\n**Watch:** {link}"
+        out.append(section)
+    return "".join(out)
 
 
 def _clean_output(text: str) -> str:
-    text = _resolve_leaked_youtube_tags(text)
     # Ensure blank lines around --- dividers so Streamlit renders them correctly
     text = re.sub(r"\n---\n", "\n\n---\n\n", text)
     # Ensure blank lines before bold field labels
@@ -314,7 +333,9 @@ def chat(user_input: str, agent, thread_id: str = "default", user_id: str = "def
             {"messages": [HumanMessage(content=user_input)]},
             config=config,
         )
-        return _clean_output(response["messages"][-1].content)
+        text = _clean_output(response["messages"][-1].content)
+        text = _inject_youtube_links(text)  # deterministic, no LLM involved
+        return text
     except Exception as e:
         import traceback
         traceback.print_exc()

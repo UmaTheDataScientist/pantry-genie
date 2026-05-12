@@ -316,7 +316,9 @@ def estimate_meal_nutrition(ingredients: str) -> str:
 # ── Exports ───────────────────────────────────────────────────────────────
 ANALYST_TOOLS = [get_pantry_contents, get_user_preferences]
 
-RECIPE_TOOLS = [find_vegetarian_substitution, search_youtube]
+# YouTube is NOT given to the LLM — we call it programmatically after generation
+# to avoid the model leaking raw <function=search_youtube> tags into its output.
+RECIPE_TOOLS = [find_vegetarian_substitution]
 
 WELLNESS_TOOLS = [estimate_meal_nutrition, analyze_shopping_gaps]
 
