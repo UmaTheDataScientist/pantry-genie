@@ -295,24 +295,34 @@ def _yt_search(recipe_name: str) -> str:
 
 
 def _inject_youtube_links(text: str) -> str:
-    """Split output into recipe sections, search YouTube for each by name, inject link.
-    This replaces any leaked <function=...> tags and fills missing Watch fields.
+    """Remove ALL Watch/YouTube content from agent output (including any leaked
+    <function=search_youtube> tags the LLM hallucinates), then search YouTube
+    for each recipe by name and inject a real link.
+
+    Called AFTER _clean_output, so separators are already \n\n---\n\n.
+    Uses a capturing-group split so separators are preserved on rejoin.
     """
-    sections = re.split(r"(?=\n---\n|^---\n)", text, flags=re.MULTILINE)
-    out = []
-    for section in sections:
-        name_m = re.search(r"##\s+(?:🍲\s*)?(.+)", section)
+    # Nuclear strip: remove every Watch line and every leaked function-call tag
+    text = re.sub(r"\*\*Watch:\*\*[^\n]*\n?", "", text)
+    text = re.sub(r"<function=[^>]*>[^<]*</function>", "", text)
+
+    api_key = os.getenv("YOUTUBE_API_KEY", "")
+    if not api_key:
+        return text
+
+    # Split keeping the --- separators (capturing group keeps them in the list)
+    parts = re.split(r"(\n+---\n+)", text)
+    processed = []
+    for part in parts:
+        name_m = re.search(r"##\s+(?:🍲\s*)?(.+)", part)
         if name_m:
             recipe_name = name_m.group(1).strip()
             link = _yt_search(recipe_name)
             if link:
-                # Replace any existing Watch line (leaked tag, empty, placeholder)
-                if "**Watch:**" in section:
-                    section = re.sub(r"\*\*Watch:\*\*[^\n]*", f"**Watch:** {link}", section)
-                else:
-                    section = section.rstrip() + f"\n**Watch:** {link}"
-        out.append(section)
-    return "".join(out)
+                part = part.rstrip() + f"\n**Watch:** {link}\n"
+        processed.append(part)
+
+    return "".join(processed)
 
 
 def _clean_output(text: str) -> str:
