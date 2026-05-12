@@ -317,9 +317,11 @@ def render_recipe_cards(text: str):
             if v := _f("Ingredients"): st.markdown(f"**Ingredients:** {v}")
             if v := _f("Directions"):  st.markdown(f"**Directions:** {v}")
             if v := _f("Cook time"):   st.markdown(f"**Cook time:** {v}")
+            if v := _f("Equipment"):   st.markdown(f"**Equipment:** {v}")
             if v := _f("Watch"):       st.markdown(f"**Watch:** {v}")
         rendered += 1
     if not rendered:
+        # Might be wellness/nutrition output — render as plain markdown
         st.markdown(text)
 
 # ════════════════════════════════════════════════════════════════════════════
@@ -542,7 +544,7 @@ elif screen == "recipes":
         prompt = "Suggest recipes from my pantry."
         if special.strip():
             prompt += f" Special request: {special.strip()}"
-        with st.spinner("🧞 Cooking up ideas..."):
+        with st.spinner("🧞 Analyst → Chef → Nutritionist working together..."):
             reply = chat(
                 user_input=prompt,
                 agent=st.session_state.agent,
@@ -553,7 +555,23 @@ elif screen == "recipes":
 
     if st.session_state.get("last_recipes"):
         st.divider()
-        render_recipe_cards(st.session_state.last_recipes)
+        # Split recipe cards from the wellness/nutrition section that follows
+        full = st.session_state.last_recipes
+        # Recipes are the --- delimited ## sections; wellness starts at 🥗 or 🛒
+        wellness_start = re.search(r"\n(🥗|\*\*🥗|\*\*Nutrition|---\n\n🥗)", full)
+        if wellness_start:
+            recipe_part   = full[:wellness_start.start()].strip()
+            wellness_part = full[wellness_start.start():].strip()
+        else:
+            recipe_part   = full
+            wellness_part = ""
+
+        render_recipe_cards(recipe_part)
+
+        if wellness_part:
+            with st.expander("🥗 Nutrition & Shopping Advice", expanded=True):
+                st.markdown(wellness_part)
+
         if st.button("🔄 New suggestions", use_container_width=True):
             st.session_state.pop("last_recipes", None); st.rerun()
     else:
